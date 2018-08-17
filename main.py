@@ -103,23 +103,9 @@ def main(args):
 
         print('Start training..')
         p = calculate_P(dataset, args.perplexity, args.batch_size)
-        print(dataset.shape, p.shape)
         model_f.fit(dataset, p,
                     epochs=args.n_epoch,
                     batch_size=args.batch_size)
-        """
-        for epoch in tqdm(range(args.n_epoch)):
-            # shuffle dataset and calculate P
-            if epoch % (args.n_epoch + 1) == 0:
-                X = dataset[np.random.permutation(n)[:m]]
-                P = calculate_P(X, args.perplexity, args.batch_size)
-
-            # train
-            for i in range(0, n, args.batch_size):
-                model_f.train_on_batch(
-                    X[i : i + args.batch_size],
-                    P[i : i + args.batch_size])
-        """
         model_f.save(args.savepath)
         print('Model saved to', args.savepath)
         print('Done', end='\n\n')
