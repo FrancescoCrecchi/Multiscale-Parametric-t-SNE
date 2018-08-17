@@ -1,10 +1,8 @@
 import numpy as np
-import keras
-from keras import backend as K
-from keras.callbacks import Callback
 
-# some aliases
-fc = keras.layers.core.Dense
+from keras import backend as K
+from keras.models import Sequential
+from keras.layers import Dense as fc
 
 
 def kl_divergence(P, Y, n_dims=2, batch_size=100):
@@ -21,11 +19,11 @@ def kl_divergence(P, Y, n_dims=2, batch_size=100):
     return C
 
 
-def simple_dnn(input_layer):
-    model = keras.models.Sequential()
-    model.add(fc(500, input_shape=(input_layer.shape[1],), activation='relu'))
+def simple_dnn(n_input, n_output):
+    model = Sequential()
+    model.add(fc(500, input_dim=n_input, activation='relu'))
     model.add(fc(500, activation='relu'))
     model.add(fc(2000, activation='relu'))
-    model.add(fc(2))
+    model.add(fc(n_output))
     model.compile(loss=kl_divergence, optimizer="adam")
     return model

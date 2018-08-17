@@ -97,11 +97,17 @@ def main(args):
         n = dataset.shape[0]
         print('Done', end='\n\n')
 
-        model_f = model.simple_dnn(dataset)
+        model_f = model.simple_dnn(dataset.shape[1], 2)
         batch_num = n // args.batch_size
         m = batch_num * args.batch_size
 
         print('Start training..')
+        p = calculate_P(dataset, args.perplexity, args.batch_size)
+        print(dataset.shape, p.shape)
+        model_f.fit(dataset, p,
+                    epochs=args.n_epoch,
+                    batch_size=args.batch_size)
+        """
         for epoch in tqdm(range(args.n_epoch)):
             # shuffle dataset and calculate P
             if epoch % (args.n_epoch + 1) == 0:
@@ -113,6 +119,7 @@ def main(args):
                 model_f.train_on_batch(
                     X[i : i + args.batch_size],
                     P[i : i + args.batch_size])
+        """
         model_f.save(args.savepath)
         print('Model saved to', args.savepath)
         print('Done', end='\n\n')
@@ -129,14 +136,12 @@ def main(args):
         print('Done')
 
         model_f = keras.models.load_model(
-            args.model, custom_objects={'KLdivergence': model.KLdivergence})
+            args.model, custom_objects={'kl_divergence': model.kl_divergence})
 
         print('Predicting with given dataset.. ', end='')
         pred = model_f.predict(dataset)
         np.save(RESULT_DIR / 'predict.npy', pred)
         print('Done', end='\n\n')
-
-    keras.backend.clear_session()
 
 
 if __name__ == '__main__':
