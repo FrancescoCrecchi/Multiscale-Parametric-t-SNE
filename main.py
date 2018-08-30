@@ -206,7 +206,7 @@ def main(args):
         n_iter=args.n_iter,
         verbose=1)
     pred = ptsne.fit_transform(dataset)
-    np.save(RESULT_DIR / 'tranform.npy', pred)
+    np.save(RESULT_DIR / 'output.npy', pred)
 
 
 if __name__ == '__main__':
