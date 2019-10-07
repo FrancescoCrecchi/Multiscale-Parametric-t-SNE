@@ -8,8 +8,12 @@ import numpy as np
 import sklearn
 from sklearn.base import BaseEstimator, TransformerMixin
 
+from setGPU import setGPU
+setGPU()
+
 import keras.backend as K
 from keras.models import Sequential
+from keras.losses import kld
 from keras.layers import Dense as fc
 
 
@@ -46,14 +50,21 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         self._log('Done')
 
         self._log('Start training..')
-        for epoch in tqdm(range(self.n_iter)):
+        # for epoch in tqdm(range(self.n_iter)):
+        for epoch in range(self.n_iter):
             new_indices = np.random.permutation(n_sample)
             X = X[new_indices]
             P = self._neighbor_distribution(X, batch_size=batch_size)
 
+            loss  = 0.0
+            n_batches = 0
             for i in range(0, n_sample, batch_size):
                 batch_slice = slice(i, i + batch_size)
-                self.model.train_on_batch(X[batch_slice], P[batch_slice])
+                loss += self.model.train_on_batch(X[batch_slice], P[batch_slice])
+                n_batches += 1
+
+            self._log('Epoch: {0} - Loss: {1:.3f}'.format(epoch, loss/n_batches))
+
         self._log('Done')
 
         return self  # scikit-learn does so..
@@ -78,8 +89,7 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         X_new = self.transform(X)
         return X_new
 
-    def _neighbor_distribution(
-        self, x, err=1e-5, max_iteration=50, batch_size=100):
+    def _neighbor_distribution(self, x, err=1e-5, max_iteration=50, batch_size=100):
         """calculate neighbor distribution from x
 
         Keyword Arguments:
@@ -219,7 +229,7 @@ if __name__ == '__main__':
         description='Train a new parametric t-SNE model.')
     parser.add_argument(
         '--dataset', type=pathlib.Path,
-        default=pathlib.Path('dataset', 'sample1000.npy'),
+        default=pathlib.Path('dataset', 'sample.npy'),
         help='dataset for training')
     parser.add_argument(
         '--n-components', type=int, default=2,

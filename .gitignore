@@ -158,3 +158,8 @@ pip-selfcheck.json
 
 
 # End of https://www.gitignore.io/api/macos,python
+
+*.png
+*.npy
+*.h5
+*.json
