@@ -43,9 +43,21 @@ def write_log(callback, names, logs, batch_no):
         callback.writer.flush()
 
 
+# def scheduler(model, epoch):
+#     if epoch < 250:
+#         K.set_value(model.optimizer.momentum, 0.5)
+#     else:
+#         K.set_value(model.optimizer.momentum, 0.8)
+
+
 class ParametricTSNE(BaseEstimator, TransformerMixin):
 
-    def __init__(self, n_components=2, perplexity=30., n_iter=100, verbose=0, logdir='.'):
+    def __init__(self, n_components=2, perplexity=30.,
+                n_iter=1000,
+                early_exaggeration_epochs = 250,
+                early_exaggeration_value = 12., 
+                logdir='.',
+                verbose=0):
         """parametric t-SNE
 
         Keyword Arguments:
@@ -65,14 +77,19 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         self.n_components = n_components
         self.perplexity = perplexity
         self.n_iter = n_iter
+        self.early_exaggeration_epochs = early_exaggeration_epochs
+        self.early_exaggeration_value = early_exaggeration_value
         self.verbose = verbose
         self.logdir = logdir
 
         self.model = None
+        self._batch_size = None
 
     def fit(self, X, y=None, batch_size=100):
         """fit the model with X"""
         n_sample, n_feature = X.shape
+
+        self._batch_size = batch_size
 
         self._log('Building model..', end=' ')
         self._build_model(n_feature, self.n_components)
@@ -96,19 +113,26 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
             P = P[:, new_indices]
 
             # Compute batching
-            P_batches = compute_P_batches(P, batch_size)
+            P_batches = compute_P_batches(P, self._batch_size)
+
+            # Early exaggeration        
+            if epoch < self.early_exaggeration_epochs:
+                P_batches *= self.early_exaggeration_value
+
+            # # Update momentum
+            # scheduler(self.model, epoch)
 
             loss  = 0.0
             n_batches = 0
-            for i in range(0, n_sample, batch_size):
-                batch_slice = slice(i, i + batch_size)
+            for i in range(0, n_sample, self._batch_size):
+                batch_slice = slice(i, i + self._batch_size)
                 loss += self.model.train_on_batch(X[batch_slice], P_batches[batch_slice])
-
                 # Increase batch counter
                 n_batches += 1
-
-            self._log('Epoch: {0} - Loss: {1:.3f}'.format(epoch, loss/n_batches))
             
+            # End-of-epoch: summarize
+            if epoch % 10 == 0:
+                self._log('Epoch: {0} - Loss: {1:.3f}'.format(epoch, loss/n_batches))
             # Write log
             write_log(callback, ['loss'], [loss/n_batches], epoch)
 
@@ -129,9 +153,9 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         self._log('Done')
         return X_new
 
-    def fit_transform(self, X, y=None):
+    def fit_transform(self, X, y=None, batch_size=100):
         """fit the model with X and apply the dimensionality reduction on X."""
-        self.fit(X)
+        self.fit(X, y, batch_size)
 
         X_new = self.transform(X)
         return X_new
@@ -203,7 +227,7 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
 
         return p
 
-    def _kl_divergence(self, P, Y, batch_size=100):
+    def _kl_divergence(self, P, Y):
         eps = K.variable(1e-14, dtype='float32')
 
         # calculate neighbor distribution Q (t-distribution) from Y
@@ -214,7 +238,7 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         Q = K.pow(1. + D, -1)
 
         # eliminate all diagonals
-        non_diagonals = 1 - K.eye(batch_size, dtype='float32')
+        non_diagonals = 1 - K.eye(self._batch_size, dtype='float32')
         Q = Q * non_diagonals
 
         # normalize
@@ -231,7 +255,7 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         self.model.add(fc(500, activation='relu'))
         self.model.add(fc(2000, activation='relu'))
         self.model.add(fc(n_output))
-        self.model.compile(loss=self._kl_divergence, optimizer='adam')
+        self.model.compile('adam', self._kl_divergence)      # optimizer=SGD(lr=200, momentum=0.5)
 
     def _log(self, *args, **kwargs):
         """logging with given arguments and keyword arguments"""
@@ -252,7 +276,7 @@ def main(args):
         n_components=args.n_components,
         perplexity=args.perplexity,
         n_iter=args.n_iter,
-        verbose=0,
+        verbose=1,
         logdir=args.logdir)
 
     pred = ptsne.fit_transform(dataset)
@@ -278,7 +302,7 @@ if __name__ == '__main__':
         '--perplexity', type=float, default=30.,
         help='perplexity value')
     parser.add_argument(
-        '--n-iter', type=int, default=100,
+        '--n-iter', type=int, default=1000,
         help='number of training epochs')
     parser.add_argument(
         '--logdir', type=str, default='.',
