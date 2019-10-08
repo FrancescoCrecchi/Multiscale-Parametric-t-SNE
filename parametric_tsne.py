@@ -17,6 +17,19 @@ from keras.losses import kld
 from keras.layers import Dense as fc
 
 
+def compute_P_batches(P, batch_size=100):
+    n = P.shape[0]
+    P_batches = np.zeros(shape=(n, batch_size), dtype=np.float32)
+    for i in range(0, n, batch_size):
+        if i + batch_size > n:
+            break
+
+        batch_slice = slice(i, i + batch_size)
+        P_batches[batch_slice, :] = P[batch_slice, batch_slice]
+
+    return P_batches
+
+
 class ParametricTSNE(BaseEstimator, TransformerMixin):
 
     def __init__(self, n_components=2, perplexity=30., n_iter=100, verbose=0):
@@ -51,16 +64,25 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
 
         self._log('Start training..')
         # for epoch in tqdm(range(self.n_iter)):
+
+        # Precompute P once-for-all!
+        P = self._neighbor_distribution(X) #, batch_size=batch_size)
+
         for epoch in range(self.n_iter):
+            # Shuffle data and P as well!
             new_indices = np.random.permutation(n_sample)
             X = X[new_indices]
-            P = self._neighbor_distribution(X, batch_size=batch_size)
+            P = P[new_indices, :]
+            P = P[:, new_indices]
+
+            # Compute batching
+            P_batches = compute_P_batches(P, batch_size)
 
             loss  = 0.0
             n_batches = 0
             for i in range(0, n_sample, batch_size):
                 batch_slice = slice(i, i + batch_size)
-                loss += self.model.train_on_batch(X[batch_slice], P[batch_slice])
+                loss += self.model.train_on_batch(X[batch_slice], P_batches[batch_slice])
                 n_batches += 1
 
             self._log('Epoch: {0} - Loss: {1:.3f}'.format(epoch, loss/n_batches))
@@ -89,7 +111,7 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         X_new = self.transform(X)
         return X_new
 
-    def _neighbor_distribution(self, x, err=1e-5, max_iteration=50, batch_size=100):
+    def _neighbor_distribution(self, x, err=1e-5, max_iteration=50):#, batch_size=100):
         """calculate neighbor distribution from x
 
         Keyword Arguments:
@@ -155,15 +177,7 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         p /= np.sum(p)
         p = np.maximum(p, 1e-12)
 
-        p_batches = np.zeros(shape=(n, batch_size), dtype=np.float32)
-        for i in range(0, n, batch_size):
-            if i + batch_size > n:
-                break
-
-            batch_slice = slice(i, i + batch_size)
-            p_batches[batch_slice, :] = p[batch_slice, batch_slice]
-
-        return p_batches
+        return p
 
     def _kl_divergence(self, P, Y, batch_size=100):
         eps = K.variable(1e-14, dtype='float32')

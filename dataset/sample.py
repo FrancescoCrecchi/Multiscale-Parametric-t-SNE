@@ -27,7 +27,7 @@ if __name__ == '__main__':
         '--n-sample', type=int, default=1000,
         help='number of samples')
     parser.add_argument(
-        '--n-feature', type=int, default=20,
+        '--n-feature', type=int, default=2,
         help='number of features')
     parser.add_argument(
         '--split-ratio', type=float, default=0.2,
