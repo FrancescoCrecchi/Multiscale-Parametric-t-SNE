@@ -163,3 +163,5 @@ pip-selfcheck.json
 *.npy
 *.h5
 *.json
+
+tensorboard/*

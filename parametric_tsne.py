@@ -15,6 +15,9 @@ import keras.backend as K
 from keras.models import Sequential
 from keras.losses import kld
 from keras.layers import Dense as fc
+from keras.layers import Dropout
+from keras.callbacks import TensorBoard
+import tensorflow as tf
 
 
 def compute_P_batches(P, batch_size=100):
@@ -30,9 +33,19 @@ def compute_P_batches(P, batch_size=100):
     return P_batches
 
 
+def write_log(callback, names, logs, batch_no):
+    for name, value in zip(names, logs):
+        summary = tf.Summary()
+        summary_value = summary.value.add()
+        summary_value.simple_value = value
+        summary_value.tag = name
+        callback.writer.add_summary(summary, batch_no)
+        callback.writer.flush()
+
+
 class ParametricTSNE(BaseEstimator, TransformerMixin):
 
-    def __init__(self, n_components=2, perplexity=30., n_iter=100, verbose=0):
+    def __init__(self, n_components=2, perplexity=30., n_iter=100, verbose=0, logdir='.'):
         """parametric t-SNE
 
         Keyword Arguments:
@@ -46,11 +59,14 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
             - n_iter -- maximum number of iterations for the optimizaiton.
 
             - verbose -- verbosity level
+
+            - logdir -- Tensorboard logdir
         """
         self.n_components = n_components
         self.perplexity = perplexity
         self.n_iter = n_iter
         self.verbose = verbose
+        self.logdir = logdir
 
         self.model = None
 
@@ -63,11 +79,15 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         self._log('Done')
 
         self._log('Start training..')
-        # for epoch in tqdm(range(self.n_iter)):
+        
+        # Tensorboard
+        callback = TensorBoard(self.logdir)
+        callback.set_model(self.model)
 
         # Precompute P once-for-all!
         P = self._neighbor_distribution(X) #, batch_size=batch_size)
 
+        # for epoch in tqdm(range(self.n_iter)):
         for epoch in range(self.n_iter):
             # Shuffle data and P as well!
             new_indices = np.random.permutation(n_sample)
@@ -83,9 +103,14 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
             for i in range(0, n_sample, batch_size):
                 batch_slice = slice(i, i + batch_size)
                 loss += self.model.train_on_batch(X[batch_slice], P_batches[batch_slice])
+
+                # Increase batch counter
                 n_batches += 1
 
             self._log('Epoch: {0} - Loss: {1:.3f}'.format(epoch, loss/n_batches))
+            
+            # Write log
+            write_log(callback, ['loss'], [loss/n_batches], epoch)
 
         self._log('Done')
 
@@ -111,7 +136,7 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         X_new = self.transform(X)
         return X_new
 
-    def _neighbor_distribution(self, x, err=1e-5, max_iteration=50):#, batch_size=100):
+    def _neighbor_distribution(self, x, err=1e-5, max_iteration=50):
         """calculate neighbor distribution from x
 
         Keyword Arguments:
@@ -120,7 +145,6 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
 
             - max_iteration -- maximum number of iterations for finding sigma
 
-            - batch_size -- batch size for training
         """
         n = x.shape[0]
         log_k = np.log(self.perplexity)
@@ -228,7 +252,9 @@ def main(args):
         n_components=args.n_components,
         perplexity=args.perplexity,
         n_iter=args.n_iter,
-        verbose=1)
+        verbose=0,
+        logdir=args.logdir)
+
     pred = ptsne.fit_transform(dataset)
     np.save(RESULT_DIR / 'output.npy', pred)
 
@@ -254,5 +280,8 @@ if __name__ == '__main__':
     parser.add_argument(
         '--n-iter', type=int, default=100,
         help='number of training epochs')
+    parser.add_argument(
+        '--logdir', type=str, default='.',
+        help='where to store Tensorboard logs')
 
     main(parser.parse_args())

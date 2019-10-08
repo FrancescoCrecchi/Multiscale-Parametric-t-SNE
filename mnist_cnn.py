@@ -109,7 +109,7 @@ if __name__ == "__main__":
 
     y = y_test.argmax(axis=1)
 
-    sk_tSNE = TSNE(verbose=1)
+    sk_tSNE = TSNE(verbose=1, early_exaggeration=1.0)       # Disable "early-exaggeration" for a fair comparison!
     embds = sk_tSNE.fit_transform(feats)
     #  Save output embds
     np.save('mnist_sk_feats_out.npy', embds)
