@@ -98,7 +98,7 @@ if __name__ == "__main__":
 
     # ===================================== T-SNE PART STARTS HERE! =====================================
 
-    X, y = x_train[:10], y_train[:10]
+    X, y = x_train[:5000], y_train[:5000]
 
     # Feature extractor
     from keras.models import Model
@@ -110,8 +110,8 @@ if __name__ == "__main__":
     from mnist import plot_mnist
 
     y = y.argmax(axis=1)
-
-    sk_tSNE = TSNE(method='exact', verbose=2, early_exaggeration=1.0)       # Disable "early-exaggeration" for a fair comparison!
+    
+    sk_tSNE = TSNE(verbose=2)        #(method='exact', verbose=2, early_exaggeration=1.0)       # Disable "early-exaggeration" for a fair comparison!
     embds = sk_tSNE.fit_transform(feats)
     #  Save output embds
     np.save('mnist_sk_feats_out.npy', embds)
@@ -121,8 +121,11 @@ if __name__ == "__main__":
     # Compute embeddings using ptSNE
     from parametric_tsne import ParametricTSNE
 
-    ptSNE = ParametricTSNE(verbose=1, n_iter=1000, logdir='tensorboard/mnist/tr_'+str(X.shape[0]))
-    embds = ptSNE.fit_transform(feats, batch_size=X.shape[0])
+    N = X.shape[0]
+    EPOCHS = 1000
+
+    ptSNE = ParametricTSNE(verbose=1, n_iter=EPOCHS, logdir='tensorboard/mnist/tr_{0}_epochs_{1}'.format(N, EPOCHS))
+    embds = ptSNE.fit_transform(feats, batch_size=N)
     #  Save output embds
     np.save('mnist_ptsne_feats_out.npy', embds)
     # Plot

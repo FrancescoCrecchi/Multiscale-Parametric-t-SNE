@@ -188,12 +188,12 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         X_new = self.transform(X)
         return X_new
 
-    def _neighbor_distribution(self, x, err=1e-5, max_iteration=50):
+    def _neighbor_distribution(self, x, tol=1e-4, max_iteration=50):
         """calculate neighbor distribution from x
 
         Keyword Arguments:
 
-            - err -- tolerance level for searching sigma numerically
+            - tol -- tolerance level for searching sigma numerically
 
             - max_iteration -- maximum number of iterations for finding sigma
 
@@ -209,49 +209,55 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         # find appropriate sigma values with bisection method and
         # multi-threading
         def beta_search(d_i):
-            # beta = 1 / (2 * sigma**2)
+
+            def Hbeta(D, beta):
+                P = np.exp(-D * beta)
+                sumP = np.sum(P)
+                H = np.log(sumP) + beta * np.sum(D * P) / sumP
+                P /= sumP
+                return H, P
+
             beta = 1.0
-            beta_min = 0.
+            beta_min = -np.inf
             beta_max = np.inf
 
-            for iteration in range(max_iteration):
-                # calculate entropy and probability distribution from given
-                # beta value
-                p_i = np.exp(-d_i * beta)
-                s = np.sum(p_i)
-                h_i = beta * np.sum(d_i * p_i) / s + np.log(s)
+            # Compute the gaussian kernel and entropy for the current precision
+            H, thisP = Hbeta(d_i, beta)
+            H_diff = H - log_k
 
-                # normalize p
-                p_i /= s
-
-                h_diff = h_i - log_k
-                if np.abs(h_diff) < err:
-                    break
-
-                if h_diff < 0.:
-                    beta_max = beta
-                    beta = (beta + beta_min) / 2.
-                else:
+            # Evaluate wheter the perplexity is within tolerance
+            i = 0
+            while i < max_iteration and np.abs(H_diff) > tol:
+                
+                # If not, increase or decrease precision
+                if H_diff > 0:
                     beta_min = beta
-                    if beta_max < np.inf:
-                        beta = (beta + beta_max) / 2.
-                    else:
+                    if np.isposinf(beta_max):
                         beta *= 2.
+                    else:
+                        beta = (beta + beta_max) / 2.
+                else:
+                    beta_max = beta
+                    if np.isneginf(beta_min):
+                       beta /= 2. 
+                    else:
+                        beta = (beta + beta_min) / 2.
+                
+                # Recompute the values
+                H, thisP = Hbeta(d_i, beta)
+                H_diff = H - log_k
+                i += 1
 
-            return p_i
+            return thisP
 
         p = np.zeros(shape=(n, n))
         for i in range(n):
-            p[i] = beta_search(d[i])
-
-        # remove nan entries
-        nan_indices = np.isnan(p)
-        p[nan_indices] = 0.
+            p[i, np.delete(np.arange(n), i)] = beta_search(np.concatenate((d[i, :i], d[i, i+1:])))
 
         # make p symmetric and normalize
         p = p + p.T
-        p /= np.sum(p)
-        p = np.maximum(p, 1e-12)
+        p /= (2*n)
+        p = np.maximum(p, 1e-15)
 
         return p
 
