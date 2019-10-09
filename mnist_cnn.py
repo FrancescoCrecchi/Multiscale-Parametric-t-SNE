@@ -98,16 +98,18 @@ if __name__ == "__main__":
 
     # ===================================== T-SNE PART STARTS HERE! =====================================
 
+    X, y = x_train[:10], y_train[:10]
+
     # Feature extractor
     from keras.models import Model
     
     feat_extr = Model(input=model.input, output=model.get_layer('logits').output)
-    feats = feat_extr.predict(x_test)
+    feats = feat_extr.predict(X)
 
     # Compute embeddings using sklearn
     from mnist import plot_mnist
 
-    y = y_test.argmax(axis=1)
+    y = y.argmax(axis=1)
 
     sk_tSNE = TSNE(method='exact', verbose=2, early_exaggeration=1.0)       # Disable "early-exaggeration" for a fair comparison!
     embds = sk_tSNE.fit_transform(feats)
@@ -116,15 +118,15 @@ if __name__ == "__main__":
     # Plot
     plot_mnist(embds, y, 'mnist_sk_feats_plot.png')
 
-    # # Compute embeddings using ptSNE
-    # from parametric_tsne import ParametricTSNE
+    # Compute embeddings using ptSNE
+    from parametric_tsne import ParametricTSNE
 
-    # ptSNE = ParametricTSNE(verbose=1, n_iter=1000, logdir='tensorboard/mnist/1000')
-    # embds = ptSNE.fit_transform(feats)
-    # #  Save output embds
-    # np.save('mnist_ptsne_feats_out.npy', embds)
-    # # Plot
-    # plot_mnist(embds, y, 'mnist_ptsne_feats_plot.png')
+    ptSNE = ParametricTSNE(verbose=1, n_iter=1000, logdir='tensorboard/mnist/tr_'+str(X.shape[0]))
+    embds = ptSNE.fit_transform(feats, batch_size=X.shape[0])
+    #  Save output embds
+    np.save('mnist_ptsne_feats_out.npy', embds)
+    # Plot
+    plot_mnist(embds, y, 'mnist_ptsne_feats_plot.png')
 
     # # ---------------------- ADVERSARIAL EXAMPLES STARTS HERE! ----------------------
     # import sys

@@ -17,6 +17,7 @@ from keras.losses import kld
 from keras.layers import Dense as fc
 from keras.layers import Dropout
 from keras.callbacks import TensorBoard
+from keras.optimizers import Adam
 import tensorflow as tf
 
 
@@ -55,7 +56,9 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
     def __init__(self, n_components=2, perplexity=30.,
                 n_iter=1000,
                 early_exaggeration_epochs = 250,
-                early_exaggeration_value = 12., 
+                early_exaggeration_value = 12.,
+                early_stopping_epochs = 30,
+                early_stopping_min_improvement = 1e-2,
                 logdir='.',
                 verbose=0):
         """parametric t-SNE
@@ -77,13 +80,21 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         self.n_components = n_components
         self.perplexity = perplexity
         self.n_iter = n_iter
+        self.verbose = verbose
+
+        # Early-exaggeration
         self.early_exaggeration_epochs = early_exaggeration_epochs
         self.early_exaggeration_value = early_exaggeration_value
-        self.verbose = verbose
+        # Early-stopping
+        self.early_stopping_epochs = early_stopping_epochs
+        self.early_stopping_min_improvement = early_stopping_min_improvement
+        # Tensorboard
         self.logdir = logdir
 
-        self.model = None
+        # Internals
+        self._model = None
         self._batch_size = None
+
 
     def fit(self, X, y=None, batch_size=100):
         """fit the model with X"""
@@ -99,13 +110,18 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         
         # Tensorboard
         callback = TensorBoard(self.logdir)
-        callback.set_model(self.model)
+        callback.set_model(self._model)
 
         # Precompute P once-for-all!
         P = self._neighbor_distribution(X) #, batch_size=batch_size)
 
-        # for epoch in tqdm(range(self.n_iter)):
-        for epoch in range(self.n_iter):
+        # Early stopping
+        es_patience = self.early_stopping_epochs
+        es_loss = np.inf
+        es_stop = False
+        
+        epoch = 0
+        while epoch < self.n_iter and not es_stop:
             # Shuffle data and P as well!
             new_indices = np.random.permutation(n_sample)
             X = X[new_indices]
@@ -119,22 +135,34 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
             if epoch < self.early_exaggeration_epochs:
                 P_batches *= self.early_exaggeration_value
 
-            # # Update momentum
-            # scheduler(self.model, epoch)
-
             loss  = 0.0
             n_batches = 0
             for i in range(0, n_sample, self._batch_size):
                 batch_slice = slice(i, i + self._batch_size)
-                loss += self.model.train_on_batch(X[batch_slice], P_batches[batch_slice])
+                loss += self._model.train_on_batch(X[batch_slice], P_batches[batch_slice])
                 # Increase batch counter
                 n_batches += 1
             
             # End-of-epoch: summarize
+            loss /= n_batches
+
             if epoch % 10 == 0:
-                self._log('Epoch: {0} - Loss: {1:.3f}'.format(epoch, loss/n_batches))
+                self._log('Epoch: {0} - Loss: {1:.3f}'.format(epoch, loss))
             # Write log
-            write_log(callback, ['loss'], [loss/n_batches], epoch)
+            write_log(callback, ['loss'], [loss], epoch)
+
+            # Check early-stopping condition
+            if loss < es_loss and np.abs(loss - es_loss) > self.early_stopping_min_improvement:
+                es_loss = loss
+                es_patience = self.early_stopping_epochs
+            else:
+                es_patience -= 1
+
+            if es_patience == 0:
+                self._log('Early stopping!')
+                es_stop = True
+            
+            epoch += 1
 
         self._log('Done')
 
@@ -143,13 +171,13 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
     def transform(self, X):
         """apply dimensionality reduction to X"""
         # fit should have been called before
-        if self.model is None:
+        if self._model is None:
             raise sklearn.exceptions.NotFittedError(
                 'This ParametricTSNE instance is not fitted yet. Call \'fit\''
                 ' with appropriate arguments before using this method.')
 
         self._log('Predicting embedding points..', end=' ')
-        X_new = self.model.predict(X)
+        X_new = self._model.predict(X)
         self._log('Done')
         return X_new
 
@@ -250,12 +278,12 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         return divergence
 
     def _build_model(self, n_input, n_output):
-        self.model = Sequential()
-        self.model.add(fc(500, input_dim=n_input, activation='relu'))
-        self.model.add(fc(500, activation='relu'))
-        self.model.add(fc(2000, activation='relu'))
-        self.model.add(fc(n_output))
-        self.model.compile('adam', self._kl_divergence)      # optimizer=SGD(lr=200, momentum=0.5)
+        self._model = Sequential()
+        self._model.add(fc(500, input_dim=n_input, activation='relu'))
+        self._model.add(fc(500, activation='relu'))
+        self._model.add(fc(2000, activation='relu'))
+        self._model.add(fc(n_output))
+        self._model.compile(Adam(), self._kl_divergence)      # optimizer=SGD(lr=200, momentum=0.5)
 
     def _log(self, *args, **kwargs):
         """logging with given arguments and keyword arguments"""
