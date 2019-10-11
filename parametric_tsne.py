@@ -44,13 +44,6 @@ def write_log(callback, names, logs, batch_no):
         callback.writer.flush()
 
 
-# def scheduler(model, epoch):
-#     if epoch < 250:
-#         K.set_value(model.optimizer.momentum, 0.5)
-#     else:
-#         K.set_value(model.optimizer.momentum, 0.8)
-
-
 class ParametricTSNE(BaseEstimator, TransformerMixin):
 
     def __init__(self, n_components=2, perplexity=30.,
@@ -111,9 +104,6 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         callback = TensorBoard(self.logdir)
         callback.set_model(self._model)
 
-        # Precompute P once-for-all!
-        P = self._neighbor_distribution(X) #, batch_size=batch_size)
-
         # Early stopping
         es_patience = self.early_stopping_epochs
         es_loss = np.inf
@@ -124,21 +114,27 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
             # Shuffle data and P as well!
             new_indices = np.random.permutation(n_sample)
             X = X[new_indices]
-            P = P[new_indices, :]
-            P = P[:, new_indices]
-
-            # Compute batching
-            P_batches = compute_P_batches(P, self._batch_size)
-
-            # Early exaggeration        
-            if epoch < self.early_exaggeration_epochs:
-                P_batches *= self.early_exaggeration_value
 
             loss = 0.0
             n_batches = 0
             for i in range(0, n_sample, self._batch_size):
+
+                # Compute batch indices
                 batch_slice = slice(i, i + self._batch_size)
-                loss += self._model.train_on_batch(X[batch_slice], P_batches[batch_slice])
+                
+                # Compute batch P
+                P_batch = self._neighbor_distribution(X[batch_slice])
+
+                # # Compute batching
+                # P_batches = compute_P_batches(P, self._batch_size)
+
+                # Early exaggeration        
+                if epoch < self.early_exaggeration_epochs:
+                    P_batch *= self.early_exaggeration_value
+
+                # Actual training
+                loss += self._model.train_on_batch(X[batch_slice], P_batch)
+
                 # Increase batch counter
                 n_batches += 1
             

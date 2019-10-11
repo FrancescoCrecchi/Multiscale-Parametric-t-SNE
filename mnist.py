@@ -23,7 +23,8 @@ def plot_mnist(X_2d, y, fname):
 if __name__ == "__main__":
     
     # Set parameters
-    N = 5000
+    N = 1000
+    BS = 100
 
     # Load data
     tr = loadmat('mnist_train.mat')
@@ -35,9 +36,9 @@ if __name__ == "__main__":
     
     X, y = train_X, train_labels.flatten()
 
-    # Perform PCA over the first 50 dimensions
-    from sklearn.decomposition import PCA
-    X = PCA(50).fit_transform(X)
+    # # Perform PCA over the first 50 dimensions
+    # from sklearn.decomposition import PCA
+    # X = PCA(50).fit_transform(X)
     
     # # Construct mappings using sklearn implementation
     # sk_tSNE = TSNE(verbose=1)
@@ -60,7 +61,7 @@ if __name__ == "__main__":
         logdir='tensorboard/mnist',
         verbose=1)
 
-    embds = ptSNE.fit_transform(X)
+    embds = ptSNE.fit_transform(X, batch_size=BS)
     
     # Save output embds
     np.save('mnist_ptnse_out.npy', embds)
