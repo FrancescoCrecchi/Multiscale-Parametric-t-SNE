@@ -23,13 +23,14 @@ def plot_mnist(X_2d, y, fname):
 if __name__ == "__main__":
     
     # Set parameters
-    N = 5000
+    N = 1000
+    BS = 100
 
     # Load data
     tr = loadmat('mnist_train.mat')
     np.random.RandomState(1234)
-    ind = np.random.permutation(tr['train_X'].shape[0])
-    # ind = np.arange(tr['train_X'].shape[0])
+    # ind = np.random.permutation(tr['train_X'].shape[0])
+    ind = np.arange(tr['train_X'].shape[0])
     train_X = tr['train_X'][ind[:N]]
     train_labels = tr['train_labels'][ind[:N]]
     
@@ -57,10 +58,9 @@ if __name__ == "__main__":
         early_exaggeration_epochs=50,
         early_exaggeration_value=4.,
         early_stopping_epochs=np.inf,
-        logdir='tensorboard/mnist',
         verbose=1)
 
-    embds = ptSNE.fit_transform(X)
+    embds = ptSNE.fit_transform(X, batch_size=BS)
     
     # Save output embds
     np.save('mnist_ptnse_out.npy', embds)

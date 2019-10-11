@@ -2,7 +2,7 @@ from __future__ import print_function
 import os
 import numpy as np
 from setGPU import setGPU
-setGPU(3)
+setGPU(-1)
 
 import keras
 from keras.models import Sequential
@@ -98,7 +98,7 @@ if __name__ == "__main__":
 
     # ===================================== T-SNE PART STARTS HERE! =====================================
 
-    N = 5000
+    N = 1000
     EPOCHS = 1000
 
     X, y = x_train[:N], y_train[:N]
@@ -114,6 +114,10 @@ if __name__ == "__main__":
 
     y = y.argmax(axis=1)
     
+    # Scale features in [0,1] range
+    from sklearn.preprocessing import MinMaxScaler
+    feats = MinMaxScaler().fit_transform(feats)
+
     # sk_tSNE = TSNE(verbose=2)        #(method='exact', verbose=2, early_exaggeration=1.0)       # Disable "early-exaggeration" for a fair comparison!
     # embds = sk_tSNE.fit_transform(feats)
     # #  Save output embds
@@ -124,7 +128,7 @@ if __name__ == "__main__":
     # Compute embeddings using ptSNE
     from parametric_tsne import ParametricTSNE
 
-    ptSNE = ParametricTSNE(verbose=1, n_iter=EPOCHS, logdir='tensorboard/mnist/tr_{0}_epochs_{1}'.format(N, EPOCHS))
+    ptSNE = ParametricTSNE(verbose=1, n_iter=EPOCHS, logdir='tensorboard/mnist/tr_samples_{0}_epochs_{1}'.format(N, EPOCHS))
     embds = ptSNE.fit_transform(feats)
     #  Save output embds
     np.save('mnist_ptsne_feats_out.npy', embds)

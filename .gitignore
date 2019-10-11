@@ -165,3 +165,5 @@ pip-selfcheck.json
 *.json
 
 tensorboard/*
+
+events.out.tfevents.*

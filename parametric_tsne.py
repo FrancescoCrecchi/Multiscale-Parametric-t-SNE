@@ -21,19 +21,6 @@ from keras.optimizers import Adam
 import tensorflow as tf
 
 
-def compute_P_batches(P, batch_size=100):
-    n = P.shape[0]
-    P_batches = np.zeros(shape=(n, batch_size), dtype=np.float32)
-    for i in range(0, n, batch_size):
-        if i + batch_size > n:
-            break
-
-        batch_slice = slice(i, i + batch_size)
-        P_batches[batch_slice, :] = P[batch_slice, batch_slice]
-
-    return P_batches
-
-
 def write_log(callback, names, logs, batch_no):
     for name, value in zip(names, logs):
         summary = tf.Summary()
@@ -59,7 +46,7 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
                 early_exaggeration_value = 4.,
                 early_stopping_epochs = np.inf,
                 early_stopping_min_improvement = 1e-2,
-                logdir='.',
+                logdir=None,
                 verbose=0):
         """parametric t-SNE
 
@@ -75,7 +62,7 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
 
             - verbose -- verbosity level
 
-            - logdir -- Tensorboard logdir
+            - logdir -- Tensorboard logdir (default: no log)
         """
         self.n_components = n_components
         self.perplexity = perplexity
@@ -108,17 +95,19 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         self._log('Start training..')
         
         # Tensorboard
-        callback = TensorBoard(self.logdir)
-        callback.set_model(self._model)
+        if self.logdir is not None:
+            callback = TensorBoard(self.logdir)
+            callback.set_model(self._model)
 
         # Precompute P once-for-all!
-        P = self._neighbor_distribution(X) #, batch_size=batch_size)
+        P = self._neighbor_distribution(X)
 
         # Early stopping
         es_patience = self.early_stopping_epochs
         es_loss = np.inf
         es_stop = False
         
+        # ------------ Actual training ------------
         epoch = 0
         while epoch < self.n_iter and not es_stop:
             # Shuffle data and P as well!
@@ -128,7 +117,7 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
             P = P[:, new_indices]
 
             # Compute batching
-            P_batches = compute_P_batches(P, self._batch_size)
+            P_batches = self._compute_P_batches(P, self._batch_size)
 
             # Early exaggeration        
             if epoch < self.early_exaggeration_epochs:
@@ -147,8 +136,9 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
 
             if epoch % 10 == 0:
                 self._log('Epoch: {0} - Loss: {1:.3f}'.format(epoch, loss))
-            # Write log
-            write_log(callback, ['loss'], [loss], epoch)
+            
+            # Tensorboard log
+            if self.logdir is not None: write_log(callback, ['loss'], [loss], epoch)
 
             # Check early-stopping condition
             if loss < es_loss and np.abs(loss - es_loss) > self.early_stopping_min_improvement:
@@ -187,8 +177,22 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         X_new = self.transform(X)
         return X_new
 
-    def _neighbor_distribution(self, x, tol=1e-4, max_iteration=50):
-        """calculate neighbor distribution from x
+    # ------------------ Internal methods ------------------
+
+    def _compute_P_batches(self, P, batch_size=100):
+        n = P.shape[0]
+        P_batches = np.zeros(shape=(n, batch_size), dtype=np.float32)
+        for i in range(0, n, batch_size):
+            if i + batch_size > n:
+                break
+
+            batch_slice = slice(i, i + batch_size)
+            P_batches[batch_slice, :] = P[batch_slice, batch_slice]
+
+        return P_batches
+
+    def _neighbor_distribution(self, X, tol=1e-4, max_iteration=50):
+        """calculate neighbor distribution from X
 
         Keyword Arguments:
 
@@ -197,13 +201,13 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
             - max_iteration -- maximum number of iterations for finding sigma
 
         """
-        n = x.shape[0]
+        n = X.shape[0]
         log_k = np.log(self.perplexity)
 
-        # calculate squared l2 distance matrix d from x
-        d = np.expand_dims(x, axis=0) - np.expand_dims(x, axis=1)
-        d = np.square(d)
-        d = np.sum(d, axis=-1)
+        # calculate squared l2 distance matrix D from X
+        D = np.expand_dims(X, axis=0) - np.expand_dims(X, axis=1)
+        D = np.square(D)
+        D = np.sum(D, axis=-1)
 
         # find appropriate sigma values with bisection method and
         # multi-threading
@@ -249,16 +253,19 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
 
             return thisP
 
-        p = np.zeros(shape=(n, n))
+        P = np.zeros(shape=(n, n))
         for i in range(n):
-            p[i, np.delete(np.arange(n), i)] = beta_search(np.concatenate((d[i, :i], d[i, i+1:])))
+            P[i, np.delete(np.arange(n), i)] = beta_search(np.concatenate((D[i, :i], D[i, i+1:])))
 
-        # make p symmetric and normalize
-        p = p + p.T
-        p /= (2*n)
-        p = np.maximum(p, 1e-15)
+        # Optional free-up D
+        del D
 
-        return p
+        # make P symmetric and normalize
+        P = P + P.T
+        P /= (2*n)
+        P = np.maximum(P, 1e-15)
+
+        return P
 
     def _kl_divergence(self, P, Y):
         eps = K.variable(1e-14, dtype='float32')
