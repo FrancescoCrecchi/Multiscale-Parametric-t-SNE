@@ -98,7 +98,10 @@ if __name__ == "__main__":
 
     # ===================================== T-SNE PART STARTS HERE! =====================================
 
-    X, y = x_train[:5000], y_train[:5000]
+    N = 5000
+    EPOCHS = 1000
+
+    X, y = x_train[:N], y_train[:N]
 
     # Feature extractor
     from keras.models import Model
@@ -111,58 +114,19 @@ if __name__ == "__main__":
 
     y = y.argmax(axis=1)
     
-    sk_tSNE = TSNE(verbose=2)        #(method='exact', verbose=2, early_exaggeration=1.0)       # Disable "early-exaggeration" for a fair comparison!
-    embds = sk_tSNE.fit_transform(feats)
-    #  Save output embds
-    np.save('mnist_sk_feats_out.npy', embds)
-    # Plot
-    plot_mnist(embds, y, 'mnist_sk_feats_plot.png')
+    # sk_tSNE = TSNE(verbose=2)        #(method='exact', verbose=2, early_exaggeration=1.0)       # Disable "early-exaggeration" for a fair comparison!
+    # embds = sk_tSNE.fit_transform(feats)
+    # #  Save output embds
+    # np.save('mnist_sk_feats_out.npy', embds)
+    # # Plot
+    # plot_mnist(embds, y, 'mnist_sk_feats_plot.png')
 
     # Compute embeddings using ptSNE
     from parametric_tsne import ParametricTSNE
 
-    N = X.shape[0]
-    EPOCHS = 1000
-
     ptSNE = ParametricTSNE(verbose=1, n_iter=EPOCHS, logdir='tensorboard/mnist/tr_{0}_epochs_{1}'.format(N, EPOCHS))
-    embds = ptSNE.fit_transform(feats, batch_size=N)
+    embds = ptSNE.fit_transform(feats)
     #  Save output embds
     np.save('mnist_ptsne_feats_out.npy', embds)
     # Plot
     plot_mnist(embds, y, 'mnist_ptsne_feats_plot.png')
-
-    # # ---------------------- ADVERSARIAL EXAMPLES STARTS HERE! ----------------------
-    # import sys
-    # sys.path.insert(0, '/home/crecchi/AE_Detector')
-
-    # from generate_CW import generate_CW
-    # from utils import index_data, create_det_dset, mkdirs, plot_with_labels
-
-    # if not os.path.exists('X_CW.npy'):
-    #     X   _CW = generate_CW(model, x_test, y_test, '.', n_samples=100)
-    # else:
-    #     X_CW = np.load('X_CW.npy', allow_pickle=True).item()
-
-    # X_NAT = index_data(x_test, y_test)
-    # ds = create_det_dset(X_NAT, X_CW, num_classes)
-
-    # for T in range(num_classes):
-    #     m = min(X_NAT[T].shape[0], X_CW[T].shape[0])
-    #     nat_embds = feat_extr.predict(X_NAT[T])[:m]
-    #     adv_embds = feat_extr.predict(X_CW[T])[:m]
-
-    #     feats = np.concatenate((nat_embds, adv_embds))
-
-    #     # Compute embeddings
-        
-    #     sk_tSNE = TSNE(verbose=1)
-    #     embds = sk_tSNE.fit_transform(feats)
-    #     # ptSNE = ParametricTSNE(verbose=1)
-    #     # embds = ptSNE.fit_transform(feats)
-    
-    #     lbls = np.zeros(embds.shape[0])
-    #     lbls[m:] = 1        # Adv
-
-    #     fig, ax = plt.subplots()
-    #     plot_with_labels(ax, embds, lbls, ['natural', 'adversarial'], title=T)
-    #     fig.savefig(mkdirs(os.path.join('adv_plots', str(T))))

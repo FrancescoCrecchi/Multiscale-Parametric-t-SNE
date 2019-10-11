@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.io import loadmat
 
 import matplotlib as mpl
 mpl.use('agg')
@@ -21,27 +22,44 @@ def plot_mnist(X_2d, y, fname):
 
 if __name__ == "__main__":
     
+    # Set parameters
+    N = 5000
+
     # Load data
-    loader = CDataLoaderMNIST()
-    tr = loader.load('training', num_samples=1000)
-
-    # Normalize the features
-    tr.X /= 255
-
-    X, y = tr.X.get_data(), tr.Y.get_data()
+    tr = loadmat('mnist_train.mat')
+    np.random.RandomState(1234)
+    ind = np.random.permutation(tr['train_X'].shape[0])
+    # ind = np.arange(tr['train_X'].shape[0])
+    train_X = tr['train_X'][ind[:N]]
+    train_labels = tr['train_labels'][ind[:N]]
     
-    # Construct mappings using sklearn implementation
-    sk_tSNE = TSNE(verbose=1)
-    embds = sk_tSNE.fit_transform(X)
+    X, y = train_X, train_labels.flatten()
 
-    # Save output embds
-    np.save('mnist_sk_out.npy', embds)
+    # Perform PCA over the first 50 dimensions
+    from sklearn.decomposition import PCA
+    X = PCA(50).fit_transform(X)
+    
+    # # Construct mappings using sklearn implementation
+    # sk_tSNE = TSNE(verbose=1)
+    # embds = sk_tSNE.fit_transform(X)
 
-    # Plot
-    plot_mnist(embds, y, 'mnist_sk_plot.png')
+    # # Save output embds
+    # np.save('mnist_sk_out.npy', embds)
+
+    # # Plot
+    # plot_mnist(embds, y, 'mnist_sk_plot.png')
     
     # Construct mappings        
-    ptSNE = ParametricTSNE(verbose=1)
+    ptSNE = ParametricTSNE(
+        n_components=2,
+        perplexity=30,
+        n_iter=1000,
+        early_exaggeration_epochs=50,
+        early_exaggeration_value=4.,
+        early_stopping_epochs=np.inf,
+        logdir='tensorboard/mnist',
+        verbose=1)
+
     embds = ptSNE.fit_transform(X)
     
     # Save output embds

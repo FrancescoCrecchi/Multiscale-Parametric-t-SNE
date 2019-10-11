@@ -55,9 +55,9 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
 
     def __init__(self, n_components=2, perplexity=30.,
                 n_iter=1000,
-                early_exaggeration_epochs = 250,
-                early_exaggeration_value = 12.,
-                early_stopping_epochs = 30,
+                early_exaggeration_epochs = 50,
+                early_exaggeration_value = 4.,
+                early_stopping_epochs = np.inf,
                 early_stopping_min_improvement = 1e-2,
                 logdir='.',
                 verbose=0):
@@ -95,12 +95,11 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         self._model = None
         self._batch_size = None
 
-
-    def fit(self, X, y=None, batch_size=100):
+    def fit(self, X, y=None, batch_size=None):
         """fit the model with X"""
         n_sample, n_feature = X.shape
 
-        self._batch_size = batch_size
+        self._batch_size = batch_size if batch_size is not None else n_sample
 
         self._log('Building model..', end=' ')
         self._build_model(n_feature, self.n_components)
@@ -135,7 +134,7 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
             if epoch < self.early_exaggeration_epochs:
                 P_batches *= self.early_exaggeration_value
 
-            loss  = 0.0
+            loss = 0.0
             n_batches = 0
             for i in range(0, n_sample, self._batch_size):
                 batch_slice = slice(i, i + self._batch_size)
@@ -181,7 +180,7 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         self._log('Done')
         return X_new
 
-    def fit_transform(self, X, y=None, batch_size=100):
+    def fit_transform(self, X, y=None, batch_size=None):
         """fit the model with X and apply the dimensionality reduction on X."""
         self.fit(X, y, batch_size)
 
@@ -211,7 +210,7 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         def beta_search(d_i):
 
             def Hbeta(D, beta):
-                P = np.exp(-D * beta)
+                P = np.exp(-D * beta)           # TODO: Still numerical issues for large Ds...
                 sumP = np.sum(P)
                 H = np.log(sumP) + beta * np.sum(D * P) / sumP
                 P /= sumP
@@ -298,6 +297,8 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
 
 
 def main(args):
+    from sklearn.preprocessing import StandardScaler
+
     RESULT_DIR = pathlib.Path('result')
 
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -305,6 +306,9 @@ def main(args):
     print('Loading dataset.. ', end='')
     dataset = np.load(args.dataset).astype(np.float32)
     print('Done')
+
+    # Scaling dataset
+    dataset = StandardScaler().fit_transform(dataset)
 
     ptsne = ParametricTSNE(
         n_components=args.n_components,
