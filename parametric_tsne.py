@@ -191,7 +191,7 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
 
         return P_batches
 
-    def _neighbor_distribution(self, X, tol=1e-4, max_iteration=50):
+    def _compute_pij(self, X, perplexity, tol=1e-4, max_iteration=50):
         """calculate neighbor distribution from X
 
         Keyword Arguments:
@@ -202,7 +202,7 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
 
         """
         n = X.shape[0]
-        log_k = np.log(self.perplexity)
+        log_k = np.log(perplexity)
 
         # calculate squared l2 distance matrix D from X
         D = np.expand_dims(X, axis=0) - np.expand_dims(X, axis=1)
@@ -259,7 +259,14 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
 
         # Optional free-up D
         del D
+            
+        return P
 
+    def _neighbor_distribution(self, X, tol=1e-4, max_iteration=50):
+        
+        n = X.shape[0]
+        P = self._compute_pij(X, self.perplexity, tol, max_iteration)
+        
         # make P symmetric and normalize
         P = P + P.T
         P /= (2*n)
