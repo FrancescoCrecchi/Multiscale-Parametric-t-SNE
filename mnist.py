@@ -1,3 +1,4 @@
+import os
 import numpy as np
 from scipy.io import loadmat
 
@@ -24,13 +25,13 @@ if __name__ == "__main__":
     
     # Set parameters
     N = 1000
-    BS = 100
+    BS = N
 
     # Load data
     tr = loadmat('mnist_train.mat')
     np.random.RandomState(1234)
-    # ind = np.random.permutation(tr['train_X'].shape[0])
-    ind = np.arange(tr['train_X'].shape[0])
+    ind = np.random.permutation(tr['train_X'].shape[0])
+    # ind = np.arange(tr['train_X'].shape[0])
     train_X = tr['train_X'][ind[:N]]
     train_labels = tr['train_labels'][ind[:N]]
     
@@ -62,10 +63,14 @@ if __name__ == "__main__":
 
     embds = ptSNE.fit_transform(X, batch_size=BS)
     
+    OUTPUT_DIR = "output/mnist"
+    if not os.path.exists(OUTPUT_DIR):
+        os.makedirs(OUTPUT_DIR)
+
     # Save output embds
-    np.save('mnist_ptnse_out.npy', embds)
+    np.save(os.path.join(OUTPUT_DIR, 'mnist_ptnse_out.npy'), embds)
 
     # Plot
-    plot_mnist(embds, y, 'mnist_ptsne_plot.png')
+    plot_mnist(embds, y, os.path.join(OUTPUT_DIR, 'mnist_ptsne_plot.png'))
 
     print('done?')

@@ -15,7 +15,7 @@ from sklearn.manifold import TSNE
 # output classes
 num_classes = 10
 
-def train_cnn(X, y, input_shape=(28, 28, 1), batch_size=128, epochs=10):
+def train_cnn(X, y, input_shape=(28, 28, 1), batch_size=128, epochs=10, store_dir="model"):
 
     model = Sequential()
     model.add(Conv2D(32, kernel_size=(3, 3),
@@ -42,10 +42,10 @@ def train_cnn(X, y, input_shape=(28, 28, 1), batch_size=128, epochs=10):
 
     # save model
     model_json = model.to_json()
-    with open("model.json", "w") as json_file:
+    with open(os.path.join(store_dir, "model.json"), "w") as json_file:
         json_file.write(model_json)
     # serialize weights to HDF5
-    model.save_weights("model.h5")
+    model.save_weights(os.path.join(store_dir, "model.h5"))
     print("Saved model to disk")
 
     return model
@@ -76,20 +76,23 @@ if __name__ == "__main__":
     y_test = keras.utils.to_categorical(y_test, num_classes)
 
     # classifier fit 
-    if os.path.exists('model.json') and os.path.exists('model.h5'):
+    MODEL_DIR = os.path.join(os.path.curdir, "models", "cnn")
+    if os.path.exists(os.path.join(MODEL_DIR, 'model.json')) and os.path.exists(os.path.join(MODEL_DIR, 'model.h5')):
         # load json and create model
-        json_file = open('model.json', 'r')
+        json_file = open(os.path.join(MODEL_DIR, 'model.json'), 'r')
         loaded_model_json = json_file.read()
         json_file.close()
         model = model_from_json(loaded_model_json)
         # load weights into new model
-        model.load_weights("model.h5")
+        model.load_weights(os.path.join(MODEL_DIR, 'model.h5'))
         print("Loaded model from disk")
         model.compile(loss=keras.losses.categorical_crossentropy,
                 optimizer=keras.optimizers.Adadelta(),
                 metrics=['accuracy'])
     else:
-        model = train_cnn(x_train, y_train)
+        if not os.path.exists(MODEL_DIR):
+            os.makedirs(MODEL_DIR)
+        model = train_cnn(x_train, y_train, store_dir=MODEL_DIR)
 
     # evaluate performance on test set
     score = model.evaluate(x_test, y_test, verbose=0)
@@ -127,10 +130,19 @@ if __name__ == "__main__":
 
     # Compute embeddings using ptSNE
     from parametric_tsne import ParametricTSNE
+    
+    TENSORBOARD_DIR = "tensorboard/mnist"
+    if not os.path.exists(TENSORBOARD_DIR):
+        os.makedirs(TENSORBOARD_DIR)
 
-    ptSNE = ParametricTSNE(verbose=1, n_iter=EPOCHS, logdir='tensorboard/mnist/tr_samples_{0}_epochs_{1}'.format(N, EPOCHS))
+    ptSNE = ParametricTSNE(verbose=1, n_iter=EPOCHS, logdir=os.path.join(TENSORBOARD_DIR, 'tr_samples_{0}_epochs_{1}'.format(N, EPOCHS)))
     embds = ptSNE.fit_transform(feats)
+    
+    OUTPUT_DIR = "output/mnist_cnn"
+    if not os.path.exists(OUTPUT_DIR):
+        os.makedirs(OUTPUT_DIR)
+
     #  Save output embds
-    np.save('mnist_ptsne_feats_out.npy', embds)
+    np.save(os.path.join(OUTPUT_DIR, 'mnist_ptsne_feats_out.npy'), embds)
     # Plot
-    plot_mnist(embds, y, 'mnist_ptsne_feats_plot.png')
+    plot_mnist(embds, y, os.path.join(OUTPUT_DIR, 'mnist_ptsne_feats_plot.png'))
