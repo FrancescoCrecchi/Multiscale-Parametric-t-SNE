@@ -130,15 +130,18 @@ if __name__ == "__main__":
 
     # Compute embeddings using ptSNE
     from parametric_tsne import ParametricTSNE
+    from ms_parametric_tsne import MultiscaleParametricTSNE
     
     TENSORBOARD_DIR = "tensorboard/mnist"
     if not os.path.exists(TENSORBOARD_DIR):
         os.makedirs(TENSORBOARD_DIR)
 
-    ptSNE = ParametricTSNE(verbose=1, n_iter=EPOCHS, logdir=os.path.join(TENSORBOARD_DIR, 'tr_samples_{0}_epochs_{1}'.format(N, EPOCHS)))
+    # ptSNE = ParametricTSNE(verbose=1, n_iter=EPOCHS, logdir=os.path.join(TENSORBOARD_DIR, 'tr_samples_{0}_epochs_{1}'.format(N, EPOCHS)))
+
+    ptSNE = MultiscaleParametricTSNE(verbose=1, n_iter=EPOCHS, logdir=os.path.join(TENSORBOARD_DIR, 'ms_ptSNE', 'tr_samples_{0}_epochs_{1}'.format(N, EPOCHS)))
     embds = ptSNE.fit_transform(feats)
     
-    OUTPUT_DIR = "output/mnist_cnn"
+    OUTPUT_DIR = "output/mnist_cnn/ms_ptSNE"
     if not os.path.exists(OUTPUT_DIR):
         os.makedirs(OUTPUT_DIR)
 

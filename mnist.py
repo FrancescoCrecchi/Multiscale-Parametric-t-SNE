@@ -11,6 +11,7 @@ from sklearn.manifold import TSNE
 
 from secml.data.loader import CDataLoaderMNIST
 from parametric_tsne import ParametricTSNE
+from ms_parametric_tsne import MultiscaleParametricTSNE
 
 def plot_mnist(X_2d, y, fname):
     plt.figure(figsize=(6, 5))
@@ -52,15 +53,25 @@ if __name__ == "__main__":
     # plot_mnist(embds, y, 'mnist_sk_plot.png')
     
     # Construct mappings        
-    ptSNE = ParametricTSNE(
+
+    # ptSNE = ParametricTSNE(
+    #     n_components=2,
+    #     perplexity=30,
+    #     n_iter=1000,
+    #     early_exaggeration_epochs=50,
+    #     early_exaggeration_value=4.,
+    #     early_stopping_epochs=np.inf,
+    #     verbose=1)
+
+    ptSNE = MultiscaleParametricTSNE(
         n_components=2,
-        perplexity=30,
+        # perplexity=30,
         n_iter=1000,
         early_exaggeration_epochs=50,
         early_exaggeration_value=4.,
         early_stopping_epochs=np.inf,
         verbose=1)
-
+    
     embds = ptSNE.fit_transform(X, batch_size=BS)
     
     OUTPUT_DIR = "output/mnist"
