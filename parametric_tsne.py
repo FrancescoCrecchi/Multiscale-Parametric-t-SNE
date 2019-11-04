@@ -210,7 +210,6 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         D = np.sum(D, axis=-1)
 
         # find appropriate sigma values with bisection method and
-        # multi-threading
         def beta_search(d_i):
 
             def Hbeta(D, beta):
@@ -230,7 +229,9 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
 
             # Evaluate wheter the perplexity is within tolerance
             i = 0
+            
             while i < max_iteration and np.abs(H_diff) > tol:
+                thisP_old = thisP.copy()
                 
                 # If not, increase or decrease precision
                 if H_diff > 0:
@@ -248,6 +249,10 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
                 
                 # Recompute the values
                 H, thisP = Hbeta(d_i, beta)
+                if np.isnan(thisP).any():
+                    thisP = thisP_old.copy()
+                    break
+
                 H_diff = H - log_k
                 i += 1
 
@@ -260,7 +265,7 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         # Optional free-up D
         del D
             
-        return P
+        return P/np.sum(P)          # TODO: CHECK THIS!
 
     def _neighbor_distribution(self, X, tol=1e-4, max_iteration=50):
         
@@ -269,8 +274,8 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         
         # make P symmetric and normalize
         P = P + P.T
-        P /= (2*n)
-        P = np.maximum(P, 1e-15)
+        P /= 2
+        P = np.maximum(P, 1e-8)
 
         return P
 
