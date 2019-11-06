@@ -14,11 +14,12 @@ setGPU()
 import keras.backend as K
 from keras.models import Sequential
 from keras.losses import kld
-from keras.layers import Dense as fc
+from keras.layers import Dense as fc, InputLayer
 from keras.layers import Dropout
 from keras.callbacks import TensorBoard
 from keras.optimizers import Adam
 import tensorflow as tf
+tf.logging.set_verbosity(tf.logging.ERROR)  # This is useful to avoid the info log of tensorflow
 
 
 def write_log(callback, names, logs, batch_no):
@@ -31,13 +32,6 @@ def write_log(callback, names, logs, batch_no):
         callback.writer.flush()
 
 
-# def scheduler(model, epoch):
-#     if epoch < 250:
-#         K.set_value(model.optimizer.momentum, 0.5)
-#     else:
-#         K.set_value(model.optimizer.momentum, 0.8)
-
-
 class ParametricTSNE(BaseEstimator, TransformerMixin):
 
     def __init__(self, n_components=2, perplexity=30.,
@@ -46,6 +40,9 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
                 early_exaggeration_value = 4.,
                 early_stopping_epochs = np.inf,
                 early_stopping_min_improvement = 1e-2,
+                nl1 = 500,
+                nl2 = 500,
+                nl3 = 2000,
                 logdir=None,
                 verbose=0):
         """parametric t-SNE
@@ -69,6 +66,11 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         self.n_iter = n_iter
         self.verbose = verbose
 
+        # FFNet architecture
+        self.nl1 = nl1
+        self.nl2 = nl2
+        self.nl3 = nl3
+
         # Early-exaggeration
         self.early_exaggeration_epochs = early_exaggeration_epochs
         self.early_exaggeration_value = early_exaggeration_value
@@ -82,92 +84,108 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         self._model = None
         self._batch_size = None
 
+        # Session handling
+        config = tf.ConfigProto()
+        config.gpu_options.allow_growth = True
+        self.graph = tf.Graph()
+        self.sess = tf.Session(config=config, graph=self.graph)
+        
     def fit(self, X, y=None, batch_size=None):
-        """fit the model with X"""
-        n_sample, n_feature = X.shape
 
-        self._batch_size = batch_size if batch_size is not None else n_sample
+        # Setting session
+        with self.graph.as_default():
+            with self.sess.as_default():
+                
+                """fit the model with X"""
+                n_sample, n_feature = X.shape
 
-        self._log('Building model..', end=' ')
-        self._build_model(n_feature, self.n_components)
-        self._log('Done')
+                self._batch_size = batch_size if batch_size is not None else n_sample
 
-        self._log('Start training..')
-        
-        # Tensorboard
-        if self.logdir is not None:
-            callback = TensorBoard(self.logdir)
-            callback.set_model(self._model)
+                self._log('Building model..', end=' ')
+                self._build_model(n_feature, self.n_components)
+                self._log('Done')
 
-        # Precompute P once-for-all!
-        P = self._neighbor_distribution(X)
+                self._log('Start training..')
+                
+                # Tensorboard
+                if self.logdir is not None:
+                    callback = TensorBoard(self.logdir)
+                    callback.set_model(self.model)
 
-        # Early stopping
-        es_patience = self.early_stopping_epochs
-        es_loss = np.inf
-        es_stop = False
-        
-        # ------------ Actual training ------------
-        epoch = 0
-        while epoch < self.n_iter and not es_stop:
-            # Shuffle data and P as well!
-            new_indices = np.random.permutation(n_sample)
-            X = X[new_indices]
-            P = P[new_indices, :]
-            P = P[:, new_indices]
+                # Precompute P once-for-all!
+                P = self._neighbor_distribution(X)
 
-            # Compute batching
-            P_batches = self._compute_P_batches(P, self._batch_size)
-
-            # Early exaggeration        
-            if epoch < self.early_exaggeration_epochs:
-                P_batches *= self.early_exaggeration_value
-
-            loss = 0.0
-            n_batches = 0
-            for i in range(0, n_sample, self._batch_size):
-                batch_slice = slice(i, i + self._batch_size)
-                loss += self._model.train_on_batch(X[batch_slice], P_batches[batch_slice])
-                # Increase batch counter
-                n_batches += 1
-            
-            # End-of-epoch: summarize
-            loss /= n_batches
-
-            if epoch % 10 == 0:
-                self._log('Epoch: {0} - Loss: {1:.3f}'.format(epoch, loss))
-            
-            # Tensorboard log
-            if self.logdir is not None: write_log(callback, ['loss'], [loss], epoch)
-
-            # Check early-stopping condition
-            if loss < es_loss and np.abs(loss - es_loss) > self.early_stopping_min_improvement:
-                es_loss = loss
+                # Early stopping
                 es_patience = self.early_stopping_epochs
-            else:
-                es_patience -= 1
+                es_loss = np.inf
+                es_stop = False
+                
+                # ------------ Actual training ------------
+                epoch = 0
+                while epoch < self.n_iter and not es_stop:
+                    # Shuffle data and P as well!
+                    new_indices = np.random.permutation(n_sample)
+                    X = X[new_indices]
+                    P = P[new_indices, :]
+                    P = P[:, new_indices]
 
-            if es_patience == 0:
-                self._log('Early stopping!')
-                es_stop = True
-            
-            epoch += 1
+                    # Compute batching
+                    P_batches = self._compute_P_batches(P, self._batch_size)
+
+                    # Early exaggeration        
+                    if epoch < self.early_exaggeration_epochs:
+                        P_batches *= self.early_exaggeration_value
+
+                    loss = 0.0
+                    n_batches = 0
+                    for i in range(0, n_sample, self._batch_size):
+                        batch_slice = slice(i, i + self._batch_size)
+                        loss += self.model.train_on_batch(X[batch_slice], P_batches[batch_slice])
+                        # Increase batch counter
+                        n_batches += 1
+                    
+                    # End-of-epoch: summarize
+                    loss /= n_batches
+
+                    if epoch % 10 == 0:
+                        self._log('Epoch: {0} - Loss: {1:.3f}'.format(epoch, loss))
+                    
+                    # Tensorboard log
+                    if self.logdir is not None: write_log(callback, ['loss'], [loss], epoch)
+
+                    # Check early-stopping condition
+                    if loss < es_loss and np.abs(loss - es_loss) > self.early_stopping_min_improvement:
+                        es_loss = loss
+                        es_patience = self.early_stopping_epochs
+                    else:
+                        es_patience -= 1
+
+                    if es_patience == 0:
+                        self._log('Early stopping!')
+                        es_stop = True
+                    
+                    epoch += 1
 
         self._log('Done')
 
         return self  # scikit-learn does so..
 
     def transform(self, X):
-        """apply dimensionality reduction to X"""
-        # fit should have been called before
-        if self._model is None:
-            raise sklearn.exceptions.NotFittedError(
-                'This ParametricTSNE instance is not fitted yet. Call \'fit\''
-                ' with appropriate arguments before using this method.')
 
-        self._log('Predicting embedding points..', end=' ')
-        X_new = self._model.predict(X)
+        with self.graph.as_default():
+            with self.sess.as_default():
+                """apply dimensionality reduction to X"""
+                # fit should have been called before
+                if self.model is None:
+                    raise sklearn.exceptions.NotFittedError(
+                        'This ParametricTSNE instance is not fitted yet. Call \'fit\''
+                        ' with appropriate arguments before using this method.')
+
+                self._log('Predicting embedding points..', end=' ')
+                X_new = self.model.predict(X)
+   
         self._log('Done')
+
         return X_new
 
     def fit_transform(self, X, y=None, batch_size=None):
@@ -303,12 +321,17 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
 
     def _build_model(self, n_input, n_output):
         self._model = Sequential()
-        self._model.add(fc(500, input_dim=n_input, activation='relu'))
-        self._model.add(fc(500, activation='relu'))
-        self._model.add(fc(2000, activation='relu'))
+        self._model.add(InputLayer((n_input,)))
+        # Layer adding loop
+        for n in [self.nl1, self.nl2, self.nl3]:
+            self._model.add(fc(n, activation='relu'))
         self._model.add(fc(n_output))
-        self._model.compile(Adam(), self._kl_divergence)      # optimizer=SGD(lr=200, momentum=0.5)
+        self._model.compile(Adam(), self._kl_divergence)
 
+    @property
+    def model(self):
+        return self._model
+    
     def _log(self, *args, **kwargs):
         """logging with given arguments and keyword arguments"""
         if self.verbose >= 1:

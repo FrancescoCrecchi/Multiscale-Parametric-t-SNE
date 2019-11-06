@@ -5,9 +5,29 @@ from parametric_tsne import ParametricTSNE
 
 class MultiscaleParametricTSNE(ParametricTSNE):
     
-    def __init__(self, n_components=2, n_iter=1000, early_exaggeration_epochs=50, early_exaggeration_value=4.0, early_stopping_epochs=np.inf, early_stopping_min_improvement=0.01, logdir=None, verbose=0):
+    def __init__(self, n_components=2,
+                n_iter=1000,
+                early_exaggeration_epochs = 50,
+                early_exaggeration_value = 4.,
+                early_stopping_epochs = np.inf,
+                early_stopping_min_improvement = 1e-2,
+                nl1 = 500,
+                nl2 = 500,
+                nl3 = 2000,
+                logdir=None, verbose=0):
+
         # Fake perplexity init.
-        super().__init__(n_components=n_components, perplexity=-1.0, n_iter=n_iter, early_exaggeration_epochs=early_exaggeration_epochs, early_exaggeration_value=early_exaggeration_value, early_stopping_epochs=early_stopping_epochs, early_stopping_min_improvement=early_stopping_min_improvement, logdir=logdir, verbose=verbose)
+        super().__init__(n_components=n_components,
+                         perplexity=-1.0,       # !!!
+                         n_iter=n_iter,
+                         early_exaggeration_epochs=early_exaggeration_epochs,
+                         early_exaggeration_value=early_exaggeration_value,
+                         early_stopping_epochs=early_stopping_epochs,
+                         early_stopping_min_improvement=early_stopping_min_improvement,
+                         nl1 = nl1,
+                         nl2 = nl2,
+                         nl3 = nl3,
+                         logdir=logdir, verbose=verbose)
     
     def _neighbor_distribution(self, X, tol=1e-4, max_iteration=50):
         # Compute multi-scale Gaussian similarities with exponentially growing perplexities
