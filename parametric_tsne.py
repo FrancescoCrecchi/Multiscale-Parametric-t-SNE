@@ -20,19 +20,89 @@ from keras.callbacks import TensorBoard
 from keras.optimizers import Adam
 import tensorflow as tf
 
+import multiprocessing as mp
 
-def compute_P_batches(P, batch_size=100):
-    n = P.shape[0]
-    P_batches = np.zeros(shape=(n, batch_size), dtype=np.float32)
-    for i in range(0, n, batch_size):
-        if i + batch_size > n:
+def Hbeta(D, beta):
+    P = np.exp(-D * beta)
+    sumP = np.sum(P)
+    H = np.log(sumP) + beta * np.sum(D * P) / sumP
+    P = P / sumP
+    return H, P
+
+def x2p_job(data, max_iteration=50, tol=1e-5):
+    i, Di, logU = data
+    
+    beta = 1.0
+    beta_min = -np.inf
+    beta_max = np.inf
+
+    H, thisP = Hbeta(Di, beta)
+    Hdiff = H - logU
+
+    tries = 0
+    while tries < max_iteration and np.abs(Hdiff) > tol:
+        thisP_old = thisP.copy()
+    
+        # If not, increase or decrease precision
+        if Hdiff > 0:
+            beta_min = beta
+            if np.isposinf(beta_max):
+                beta *= 2.
+            else:
+                beta = (beta + beta_max) / 2.
+        else:
+            beta_max = beta
+            if np.isneginf(beta_min):
+                beta /= 2. 
+            else:
+                beta = (beta + beta_min) / 2.
+
+        H, thisP = Hbeta(Di, beta)
+        if np.isnan(thisP).any():
+            thisP = thisP_old.copy()
             break
 
-        batch_slice = slice(i, i + batch_size)
-        P_batches[batch_slice, :] = P[batch_slice, batch_slice]
+        Hdiff = H - logU
+        tries += 1
 
-    return P_batches
+    return i, thisP
 
+def x2p(X, perplexity, n_jobs=4):
+
+    n = X.shape[0]
+    logU = np.log(perplexity)
+
+    sum_X = np.sum(np.square(X), axis=1)
+    D = sum_X + (sum_X.reshape([-1, 1]) - 2 * np.dot(X, X.T))
+
+    idx = (1 - np.eye(n)).astype(bool)
+    D = D[idx].reshape([n, -1])
+
+    def generator():
+        for i in range(n):
+            yield i, D[i], logU
+
+    P = np.zeros([n, n])
+    
+    with mp.Pool(n_jobs) as pool:
+        result = pool.map(x2p_job, generator())
+    for i, thisP in result:
+        P[i, idx[i]] = thisP
+
+    return P
+
+def calculate_P(X, batch_size, perplexity):
+    # print("Computing pairwise distances...")
+    n = X.shape[0]
+    P = np.zeros([n, batch_size])
+    for i in range(0, n, batch_size):
+        P_batch = x2p(X[i:i + batch_size], perplexity)
+        P_batch[np.isnan(P_batch)] = 0
+        P_batch = P_batch + P_batch.T
+        P_batch = P_batch / P_batch.sum()
+        P_batch = np.maximum(P_batch, 1e-8)
+        P[i:i + batch_size] = P_batch
+    return P
 
 def write_log(callback, names, logs, batch_no):
     for name, value in zip(names, logs):
@@ -52,6 +122,7 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
                 early_exaggeration_value = 4.,
                 early_stopping_epochs = np.inf,
                 early_stopping_min_improvement = 1e-2,
+                alpha = 1,
                 logdir='.',
                 verbose=0):
         """parametric t-SNE
@@ -81,6 +152,10 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         # Early-stopping
         self.early_stopping_epochs = early_stopping_epochs
         self.early_stopping_min_improvement = early_stopping_min_improvement
+
+        # t-Student params
+        self.alpha = alpha
+
         # Tensorboard
         self.logdir = logdir
 
@@ -115,25 +190,22 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
             new_indices = np.random.permutation(n_sample)
             X = X[new_indices]
 
+            # Compute P
+            P = calculate_P(X, self._batch_size, self.perplexity)
+
+            # Early exaggeration        
+            if epoch < self.early_exaggeration_epochs:
+                P *= self.early_exaggeration_value
+
             loss = 0.0
             n_batches = 0
             for i in range(0, n_sample, self._batch_size):
 
                 # Compute batch indices
                 batch_slice = slice(i, i + self._batch_size)
-                
-                # Compute batch P
-                P_batch = self._neighbor_distribution(X[batch_slice])
-
-                # # Compute batching
-                # P_batches = compute_P_batches(P, self._batch_size)
-
-                # Early exaggeration        
-                if epoch < self.early_exaggeration_epochs:
-                    P_batch *= self.early_exaggeration_value
 
                 # Actual training
-                loss += self._model.train_on_batch(X[batch_slice], P_batch)
+                loss += self._model.train_on_batch(X[batch_slice], P[batch_slice])
 
                 # Increase batch counter
                 n_batches += 1
@@ -183,100 +255,20 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         X_new = self.transform(X)
         return X_new
 
-    def _neighbor_distribution(self, x, tol=1e-4, max_iteration=50):
-        """calculate neighbor distribution from x
-
-        Keyword Arguments:
-
-            - tol -- tolerance level for searching sigma numerically
-
-            - max_iteration -- maximum number of iterations for finding sigma
-
-        """
-        n = x.shape[0]
-        log_k = np.log(self.perplexity)
-
-        # calculate squared l2 distance matrix d from x
-        d = np.expand_dims(x, axis=0) - np.expand_dims(x, axis=1)
-        d = np.square(d)
-        d = np.sum(d, axis=-1)
-
-        # find appropriate sigma values with bisection method and
-        # multi-threading
-        def beta_search(d_i):
-
-            def Hbeta(D, beta):
-                P = np.exp(-D * beta)           # TODO: Still numerical issues for large Ds...
-                sumP = np.sum(P)
-                H = np.log(sumP) + beta * np.sum(D * P) / sumP
-                P /= sumP
-                return H, P
-
-            beta = 1.0
-            beta_min = -np.inf
-            beta_max = np.inf
-
-            # Compute the gaussian kernel and entropy for the current precision
-            H, thisP = Hbeta(d_i, beta)
-            H_diff = H - log_k
-
-            # Evaluate wheter the perplexity is within tolerance
-            i = 0
-            while i < max_iteration and np.abs(H_diff) > tol:
-                
-                # If not, increase or decrease precision
-                if H_diff > 0:
-                    beta_min = beta
-                    if np.isposinf(beta_max):
-                        beta *= 2.
-                    else:
-                        beta = (beta + beta_max) / 2.
-                else:
-                    beta_max = beta
-                    if np.isneginf(beta_min):
-                       beta /= 2. 
-                    else:
-                        beta = (beta + beta_min) / 2.
-                
-                # Recompute the values
-                H, thisP = Hbeta(d_i, beta)
-                H_diff = H - log_k
-                i += 1
-
-            return thisP
-
-        p = np.zeros(shape=(n, n))
-        for i in range(n):
-            p[i, np.delete(np.arange(n), i)] = beta_search(np.concatenate((d[i, :i], d[i, i+1:])))
-
-        # make p symmetric and normalize
-        p = p + p.T
-        p /= (2*n)
-        p = np.maximum(p, 1e-15)
-
-        return p
+    # ================================ Internals ================================
 
     def _kl_divergence(self, P, Y):
-        eps = K.variable(1e-14, dtype='float32')
-
-        # calculate neighbor distribution Q (t-distribution) from Y
-        D = K.expand_dims(Y, axis=0) - K.expand_dims(Y, axis=1)
-        D = K.square(D)
-        D = K.sum(D, axis=-1)
-
-        Q = K.pow(1. + D, -1)
-
-        # eliminate all diagonals
-        non_diagonals = 1 - K.eye(self._batch_size, dtype='float32')
-        Q = Q * non_diagonals
-
-        # normalize
-        sum_Q = K.sum(Q)
-        Q /= sum_Q
+        sum_Y = K.sum(K.square(Y), axis=1)
+        eps = K.variable(1e-15)
+        D = sum_Y + K.reshape(sum_Y, [-1, 1]) - 2 * K.dot(Y, K.transpose(Y))
+        Q = K.pow(1 + D / self.alpha, -(self.alpha + 1) / 2)
+        Q *= K.variable(1 - np.eye(self._batch_size))
+        Q /= K.sum(Q)
         Q = K.maximum(Q, eps)
+        C = K.log((P + eps) / (Q + eps))
+        C = K.sum(P * C)
 
-        divergence = K.sum(P * K.log((P + eps) / (Q + eps)))
-        return divergence
+        return C
 
     def _build_model(self, n_input, n_output):
         self._model = Sequential()
@@ -284,7 +276,7 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         self._model.add(fc(500, activation='relu'))
         self._model.add(fc(2000, activation='relu'))
         self._model.add(fc(n_output))
-        self._model.compile(Adam(), self._kl_divergence)      # optimizer=SGD(lr=200, momentum=0.5)
+        self._model.compile('adam', self._kl_divergence)
 
     def _log(self, *args, **kwargs):
         """logging with given arguments and keyword arguments"""
@@ -339,7 +331,7 @@ if __name__ == '__main__':
         '--n-iter', type=int, default=1000,
         help='number of training epochs')
     parser.add_argument(
-        '--logdir', type=str, default='.',
+        '--logdir', type=str, default='None',
         help='where to store Tensorboard logs')
 
     main(parser.parse_args())
