@@ -15,7 +15,7 @@ def plot_mnist(X_2d, y, fname):
     plt.figure(figsize=(6, 5))
     colors = 'r', 'g', 'b', 'c', 'm', 'y', 'k', 'w', 'orange', 'purple'
     for i, c in zip(np.unique(y), colors):
-        plt.scatter(X_2d[y == i, 0], X_2d[y == i, 1], c=c, label=str(i))
+        plt.scatter(X_2d[y == i, 0], X_2d[y == i, 1], c=c, label=str(i), s=8)
     plt.legend()
     plt.savefig(fname)
 
@@ -23,8 +23,9 @@ def plot_mnist(X_2d, y, fname):
 if __name__ == "__main__":
     
     # Set parameters
-    N = 1000
-    BS = 100
+    N = 60000
+    BS = 5000
+    N_EPOCHS = 1000
 
     # Load data
     tr = loadmat('mnist_train.mat')
@@ -33,12 +34,13 @@ if __name__ == "__main__":
     # ind = np.arange(tr['train_X'].shape[0])
     train_X = tr['train_X'][ind[:N]]
     train_labels = tr['train_labels'][ind[:N]]
-    
-    X, y = train_X, train_labels.flatten()
 
-    # # Perform PCA over the first 50 dimensions
-    # from sklearn.decomposition import PCA
-    # X = PCA(50).fit_transform(X)
+    X, y = train_X, train_labels.flatten()
+    print("Dataset size: {0}".format(X.shape[0]))
+
+    # Perform PCA over the first 50 dimensions
+    from sklearn.decomposition import PCA
+    X = PCA(50).fit_transform(X)
     
     # # Construct mappings using sklearn implementation
     # sk_tSNE = TSNE(verbose=1)
@@ -54,7 +56,7 @@ if __name__ == "__main__":
     ptSNE = ParametricTSNE(
         n_components=2,
         perplexity=30,
-        n_iter=1000,
+        n_iter=N_EPOCHS,
         early_exaggeration_epochs=50,
         early_exaggeration_value=4.,
         early_stopping_epochs=np.inf,

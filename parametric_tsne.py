@@ -67,7 +67,7 @@ def x2p_job(data, max_iteration=50, tol=1e-5):
 
     return i, thisP
 
-def x2p(X, perplexity, n_jobs=4):
+def x2p(X, perplexity, n_jobs=None):        # Use all threads available
 
     n = X.shape[0]
     logU = np.log(perplexity)
@@ -83,7 +83,6 @@ def x2p(X, perplexity, n_jobs=4):
             yield i, D[i], logU
 
     P = np.zeros([n, n])
-    
     with mp.Pool(n_jobs) as pool:
         result = pool.map(x2p_job, generator())
     for i, thisP in result:
@@ -91,17 +90,15 @@ def x2p(X, perplexity, n_jobs=4):
 
     return P
 
-def calculate_P(X, batch_size, perplexity):
-    # print("Computing pairwise distances...")
+def calculate_P(X, perplexity):
     n = X.shape[0]
-    P = np.zeros([n, batch_size])
-    for i in range(0, n, batch_size):
-        P_batch = x2p(X[i:i + batch_size], perplexity)
-        P_batch[np.isnan(P_batch)] = 0
-        P_batch = P_batch + P_batch.T
-        P_batch = P_batch / P_batch.sum()
-        P_batch = np.maximum(P_batch, 1e-8)
-        P[i:i + batch_size] = P_batch
+
+    P = np.zeros([n, n])
+    P = x2p(X, perplexity)
+    P = P + P.T
+    P = P / P.sum()
+    P = np.maximum(P, 1e-8)
+    
     return P
 
 def write_log(callback, names, logs, batch_no):
@@ -125,22 +122,7 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
                 alpha = 1,
                 logdir='.',
                 verbose=0):
-        """parametric t-SNE
-
-        Keyword Arguments:
-
-            - n_components -- dimension of the embedded space
-
-            - perplexity -- the perplexity is related to the number of nearest
-                            neighbors that is used in other manifold learning
-                            algorithms
-
-            - n_iter -- maximum number of iterations for the optimizaiton.
-
-            - verbose -- verbosity level
-
-            - logdir -- Tensorboard logdir
-        """
+        
         self.n_components = n_components
         self.perplexity = perplexity
         self.n_iter = n_iter
@@ -190,13 +172,6 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
             new_indices = np.random.permutation(n_sample)
             X = X[new_indices]
 
-            # Compute P
-            P = calculate_P(X, self._batch_size, self.perplexity)
-
-            # Early exaggeration        
-            if epoch < self.early_exaggeration_epochs:
-                P *= self.early_exaggeration_value
-
             loss = 0.0
             n_batches = 0
             for i in range(0, n_sample, self._batch_size):
@@ -205,7 +180,13 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
                 batch_slice = slice(i, i + self._batch_size)
 
                 # Actual training
-                loss += self._model.train_on_batch(X[batch_slice], P[batch_slice])
+                P_batch = calculate_P(X[batch_slice], self.perplexity)
+
+                # Early exaggeration        
+                if epoch < self.early_exaggeration_epochs:
+                    P_batch *= self.early_exaggeration_value
+                    
+                loss += self._model.train_on_batch(X[batch_slice], P_batch)
 
                 # Increase batch counter
                 n_batches += 1
@@ -213,7 +194,7 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
             # End-of-epoch: summarize
             loss /= n_batches
 
-            if epoch % 10 == 0:
+            if epoch % 10 == 0:              # TODO: CHANGE HERE!
                 self._log('Epoch: {0} - Loss: {1:.3f}'.format(epoch, loss))
             # Write log
             write_log(callback, ['loss'], [loss], epoch)

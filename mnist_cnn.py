@@ -2,7 +2,7 @@ from __future__ import print_function
 import os
 import numpy as np
 from setGPU import setGPU
-setGPU(3)
+setGPU(-1)
 
 import keras
 from keras.models import Sequential
@@ -99,7 +99,8 @@ if __name__ == "__main__":
     # ===================================== T-SNE PART STARTS HERE! =====================================
 
     N = 5000
-    EPOCHS = 1000
+    BS = 1000
+    EPOCHS = 100
 
     X, y = x_train[:N], y_train[:N]
 
@@ -124,8 +125,8 @@ if __name__ == "__main__":
     # Compute embeddings using ptSNE
     from parametric_tsne import ParametricTSNE
 
-    ptSNE = ParametricTSNE(verbose=1, n_iter=EPOCHS, logdir='tensorboard/mnist/tr_{0}_epochs_{1}'.format(N, EPOCHS))
-    embds = ptSNE.fit_transform(feats)
+    ptSNE = ParametricTSNE(verbose=1, n_iter=EPOCHS)#, logdir='tensorboard/mnist/tr_{0}_epochs_{1}'.format(N, EPOCHS))
+    embds = ptSNE.fit_transform(feats, batch_size=BS)
     #  Save output embds
     np.save('mnist_ptsne_feats_out.npy', embds)
     # Plot
