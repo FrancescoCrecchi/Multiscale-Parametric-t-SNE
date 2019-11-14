@@ -1,6 +1,6 @@
 import numpy as np
 from tqdm import tqdm
-from parametric_tsne import ParametricTSNE
+from parametric_tsne import ParametricTSNE, x2p
 
 
 class MultiscaleParametricTSNE(ParametricTSNE):
@@ -29,7 +29,7 @@ class MultiscaleParametricTSNE(ParametricTSNE):
                          nl3 = nl3,
                          logdir=logdir, verbose=verbose)
     
-    def _neighbor_distribution(self, X, tol=1e-4, max_iteration=50):
+    def calculate_P(self, X, perplexity):
         # Compute multi-scale Gaussian similarities with exponentially growing perplexities
         N = X.shape[0]
         H = np.rint(np.log2(N/2))
@@ -37,7 +37,7 @@ class MultiscaleParametricTSNE(ParametricTSNE):
         for h in tqdm(np.arange(1, H+1)):
             # Compute current perplexity P_ij
             perplexity = 2**h
-            _P = self._compute_pij(X, perplexity, tol, max_iteration)
+            _P = x2p(X, perplexity)
             
             # make symmetric and normalize
             _P += _P.T

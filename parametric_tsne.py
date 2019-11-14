@@ -1,5 +1,6 @@
 import pathlib
 import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import argparse
 
 from tqdm import tqdm
@@ -7,6 +8,7 @@ import numpy as np
 
 import sklearn
 from sklearn.base import BaseEstimator, TransformerMixin
+
 
 from setGPU import setGPU
 setGPU()
@@ -19,8 +21,76 @@ from keras.layers import Dropout
 from keras.callbacks import TensorBoard
 from keras.optimizers import Adam
 import tensorflow as tf
-tf.logging.set_verbosity(tf.logging.ERROR)  # This is useful to avoid the info log of tensorflow
 
+import multiprocessing as mp
+
+def Hbeta(D, beta):
+    P = np.exp(-D * beta)
+    sumP = np.sum(P)
+    H = np.log(sumP) + beta * np.sum(D * P) / sumP
+    P = P / sumP
+    return H, P
+
+def x2p_job(data, max_iteration=50, tol=1e-5):
+    i, Di, logU = data
+    
+    beta = 1.0
+    beta_min = -np.inf
+    beta_max = np.inf
+
+    H, thisP = Hbeta(Di, beta)
+    Hdiff = H - logU
+
+    tries = 0
+    while tries < max_iteration and np.abs(Hdiff) > tol:
+        thisP_old = thisP.copy()
+    
+        # If not, increase or decrease precision
+        if Hdiff > 0:
+            beta_min = beta
+            if np.isposinf(beta_max):
+                beta *= 2.
+            else:
+                beta = (beta + beta_max) / 2.
+        else:
+            beta_max = beta
+            if np.isneginf(beta_min):
+                beta /= 2. 
+            else:
+                beta = (beta + beta_min) / 2.
+
+        H, thisP = Hbeta(Di, beta)
+        if np.isnan(thisP).any():
+            thisP = thisP_old.copy()
+            break
+
+        Hdiff = H - logU
+        tries += 1
+
+    return i, thisP
+
+def x2p(X, perplexity, n_jobs=None):        # Use all threads available
+
+    n = X.shape[0]
+    logU = np.log(perplexity)
+
+    sum_X = np.sum(np.square(X), axis=1)
+    D = sum_X + (sum_X.reshape([-1, 1]) - 2 * np.dot(X, X.T))
+
+    idx = (1 - np.eye(n)).astype(bool)
+    D = D[idx].reshape([n, -1])
+
+    def generator():
+        for i in range(n):
+            yield i, D[i], logU
+
+    P = np.zeros([n, n])
+    with mp.Pool(n_jobs) as pool:
+        result = pool.map(x2p_job, generator())
+    for i, thisP in result:
+        P[i, idx[i]] = thisP
+
+    return P
 
 def write_log(callback, names, logs, batch_no):
     for name, value in zip(names, logs):
@@ -40,27 +110,12 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
                 early_exaggeration_value = 4.,
                 early_stopping_epochs = np.inf,
                 early_stopping_min_improvement = 1e-2,
+                alpha = 1,
                 nl1 = 500,
                 nl2 = 500,
                 nl3 = 2000,
-                logdir=None,
-                verbose=0):
-        """parametric t-SNE
-
-        Keyword Arguments:
-
-            - n_components -- dimension of the embedded space
-
-            - perplexity -- the perplexity is related to the number of nearest
-                            neighbors that is used in other manifold learning
-                            algorithms
-
-            - n_iter -- maximum number of iterations for the optimizaiton.
-
-            - verbose -- verbosity level
-
-            - logdir -- Tensorboard logdir (default: no log)
-        """
+                logdir=None, verbose=0):
+        
         self.n_components = n_components
         self.perplexity = perplexity
         self.n_iter = n_iter
@@ -77,6 +132,10 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         # Early-stopping
         self.early_stopping_epochs = early_stopping_epochs
         self.early_stopping_min_improvement = early_stopping_min_improvement
+
+        # t-Student params
+        self.alpha = alpha
+
         # Tensorboard
         self.logdir = logdir
 
@@ -108,50 +167,46 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
                 self._log('Start training..')
                 
                 # Tensorboard
-                if self.logdir is not None:
-                    callback = TensorBoard(self.logdir)
-                    callback.set_model(self.model)
-
-                # Precompute P once-for-all!
-                P = self._neighbor_distribution(X)
+                callback = TensorBoard(self.logdir)
+                callback.set_model(self._model)
 
                 # Early stopping
                 es_patience = self.early_stopping_epochs
                 es_loss = np.inf
                 es_stop = False
                 
-                # ------------ Actual training ------------
                 epoch = 0
                 while epoch < self.n_iter and not es_stop:
                     # Shuffle data and P as well!
                     new_indices = np.random.permutation(n_sample)
                     X = X[new_indices]
-                    P = P[new_indices, :]
-                    P = P[:, new_indices]
-
-                    # Compute batching
-                    P_batches = self._compute_P_batches(P, self._batch_size)
-
-                    # Early exaggeration        
-                    if epoch < self.early_exaggeration_epochs:
-                        P_batches *= self.early_exaggeration_value
 
                     loss = 0.0
                     n_batches = 0
                     for i in range(0, n_sample, self._batch_size):
+
+                        # Compute batch indices
                         batch_slice = slice(i, i + self._batch_size)
-                        loss += self.model.train_on_batch(X[batch_slice], P_batches[batch_slice])
+
+                        # Actual training
+                        P_batch = self.calculate_P(X[batch_slice], self.perplexity)
+
+                        # Early exaggeration        
+                        if epoch < self.early_exaggeration_epochs:
+                            P_batch *= self.early_exaggeration_value
+                            
+                        loss += self._model.train_on_batch(X[batch_slice], P_batch)
+
                         # Increase batch counter
                         n_batches += 1
                     
                     # End-of-epoch: summarize
                     loss /= n_batches
 
-                    if epoch % 10 == 0:
+                    if epoch % 10 == 0:              # TODO: CHANGE HERE!
                         self._log('Epoch: {0} - Loss: {1:.3f}'.format(epoch, loss))
-                    
-                    # Tensorboard log
-                    if self.logdir is not None: write_log(callback, ['loss'], [loss], epoch)
+                    # Write log
+                    write_log(callback, ['loss'], [loss], epoch)
 
                     # Check early-stopping condition
                     if loss < es_loss and np.abs(loss - es_loss) > self.early_stopping_min_improvement:
@@ -166,10 +221,10 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
                     
                     epoch += 1
 
-        self._log('Done')
+            self._log('Done')
 
         return self  # scikit-learn does so..
-
+        
     def transform(self, X):
 
         with self.graph.as_default():
@@ -195,129 +250,31 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         X_new = self.transform(X)
         return X_new
 
-    # ------------------ Internal methods ------------------
+    # ================================ Internals ================================
 
-    def _compute_P_batches(self, P, batch_size=100):
-        n = P.shape[0]
-        P_batches = np.zeros(shape=(n, batch_size), dtype=np.float32)
-        for i in range(0, n, batch_size):
-            if i + batch_size > n:
-                break
-
-            batch_slice = slice(i, i + batch_size)
-            P_batches[batch_slice, :] = P[batch_slice, batch_slice]
-
-        return P_batches
-
-    def _compute_pij(self, X, perplexity, tol=1e-4, max_iteration=50):
-        """calculate neighbor distribution from X
-
-        Keyword Arguments:
-
-            - tol -- tolerance level for searching sigma numerically
-
-            - max_iteration -- maximum number of iterations for finding sigma
-
-        """
+    def calculate_P(self, X, perplexity):
         n = X.shape[0]
-        log_k = np.log(perplexity)
 
-        # calculate squared l2 distance matrix D from X
-        D = np.expand_dims(X, axis=0) - np.expand_dims(X, axis=1)
-        D = np.square(D)
-        D = np.sum(D, axis=-1)
-
-        # find appropriate sigma values with bisection method and
-        def beta_search(d_i):
-
-            def Hbeta(D, beta):
-                P = np.exp(-D * beta)           # TODO: Still numerical issues for large Ds...
-                sumP = np.sum(P)
-                H = np.log(sumP) + beta * np.sum(D * P) / sumP
-                P /= sumP
-                return H, P
-
-            beta = 1.0
-            beta_min = -np.inf
-            beta_max = np.inf
-
-            # Compute the gaussian kernel and entropy for the current precision
-            H, thisP = Hbeta(d_i, beta)
-            H_diff = H - log_k
-
-            # Evaluate wheter the perplexity is within tolerance
-            i = 0
-            
-            while i < max_iteration and np.abs(H_diff) > tol:
-                thisP_old = thisP.copy()
-                
-                # If not, increase or decrease precision
-                if H_diff > 0:
-                    beta_min = beta
-                    if np.isposinf(beta_max):
-                        beta *= 2.
-                    else:
-                        beta = (beta + beta_max) / 2.
-                else:
-                    beta_max = beta
-                    if np.isneginf(beta_min):
-                       beta /= 2. 
-                    else:
-                        beta = (beta + beta_min) / 2.
-                
-                # Recompute the values
-                H, thisP = Hbeta(d_i, beta)
-                if np.isnan(thisP).any():
-                    thisP = thisP_old.copy()
-                    break
-
-                H_diff = H - log_k
-                i += 1
-
-            return thisP
-
-        P = np.zeros(shape=(n, n))
-        for i in range(n):
-            P[i, np.delete(np.arange(n), i)] = beta_search(np.concatenate((D[i, :i], D[i, i+1:])))
-
-        # Optional free-up D
-        del D
-            
-        return P/np.sum(P)          # TODO: CHECK THIS!
-
-    def _neighbor_distribution(self, X, tol=1e-4, max_iteration=50):
-        
-        n = X.shape[0]
-        P = self._compute_pij(X, self.perplexity, tol, max_iteration)
-        
-        # make P symmetric and normalize
+        P = np.zeros([n, n])
+        P = x2p(X, perplexity)
         P = P + P.T
-        P /= 2
+        P = P / P.sum()
         P = np.maximum(P, 1e-8)
-
+        
         return P
 
     def _kl_divergence(self, P, Y):
-        eps = K.variable(1e-14, dtype='float32')
-
-        # calculate neighbor distribution Q (t-distribution) from Y
-        D = K.expand_dims(Y, axis=0) - K.expand_dims(Y, axis=1)
-        D = K.square(D)
-        D = K.sum(D, axis=-1)
-
-        Q = K.pow(1. + D, -1)
-
-        # eliminate all diagonals
-        non_diagonals = 1 - K.eye(self._batch_size, dtype='float32')
-        Q = Q * non_diagonals
-
-        # normalize
-        sum_Q = K.sum(Q)
-        Q /= sum_Q
+        sum_Y = K.sum(K.square(Y), axis=1)
+        eps = K.variable(1e-15)
+        D = sum_Y + K.reshape(sum_Y, [-1, 1]) - 2 * K.dot(Y, K.transpose(Y))
+        Q = K.pow(1 + D / self.alpha, -(self.alpha + 1) / 2)
+        Q *= K.variable(1 - np.eye(self._batch_size))
+        Q /= K.sum(Q)
         Q = K.maximum(Q, eps)
+        C = K.log((P + eps) / (Q + eps))
+        C = K.sum(P * C)
 
-        divergence = K.sum(P * K.log((P + eps) / (Q + eps)))
-        return divergence
+        return C
 
     def _build_model(self, n_input, n_output):
         self._model = Sequential()
@@ -326,7 +283,7 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         for n in [self.nl1, self.nl2, self.nl3]:
             self._model.add(fc(n, activation='relu'))
         self._model.add(fc(n_output))
-        self._model.compile(Adam(), self._kl_divergence)
+        self._model.compile('adam', self._kl_divergence)
 
     @property
     def model(self):
@@ -385,7 +342,7 @@ if __name__ == '__main__':
         '--n-iter', type=int, default=1000,
         help='number of training epochs')
     parser.add_argument(
-        '--logdir', type=str, default='.',
+        '--logdir', type=str, default='None',
         help='where to store Tensorboard logs')
 
     main(parser.parse_args())
