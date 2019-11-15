@@ -56,22 +56,22 @@ if __name__ == "__main__":
     
     # Construct mappings        
 
-    # ptSNE = ParametricTSNE(
-    #     n_components=2,
-    #     perplexity=30,
-    #     n_iter=N_EPOCHS,
-    #     early_exaggeration_epochs=50,
-    #     early_exaggeration_value=4.,
-    #     early_stopping_epochs=np.inf,
-    #     verbose=1)
-
-    ptSNE = MultiscaleParametricTSNE(
+    ptSNE = ParametricTSNE(
         n_components=2,
+        perplexity=30,
         n_iter=N_EPOCHS,
         early_exaggeration_epochs=50,
         early_exaggeration_value=4.,
         early_stopping_epochs=np.inf,
         verbose=1)
+
+    # ptSNE = MultiscaleParametricTSNE(
+    #     n_components=2,
+    #     n_iter=N_EPOCHS,
+    #     early_exaggeration_epochs=50,
+    #     early_exaggeration_value=4.,
+    #     early_stopping_epochs=np.inf,
+    #     verbose=1)
 
     embds = ptSNE.fit_transform(X, batch_size=BS)
         

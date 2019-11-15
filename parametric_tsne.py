@@ -5,10 +5,10 @@ import argparse
 
 from tqdm import tqdm
 import numpy as np
+import numba
 
 import sklearn
 from sklearn.base import BaseEstimator, TransformerMixin
-
 
 from setGPU import setGPU
 setGPU()
@@ -24,6 +24,7 @@ import tensorflow as tf
 
 import multiprocessing as mp
 
+@numba.jit(nopython=True)
 def Hbeta(D, beta):
     P = np.exp(-D * beta)
     sumP = np.sum(P)
@@ -31,6 +32,7 @@ def Hbeta(D, beta):
     P = P / sumP
     return H, P
 
+@numba.jit(nopython=True)
 def x2p_job(data, max_iteration=50, tol=1e-5):
     i, Di, logU = data
     
@@ -48,13 +50,13 @@ def x2p_job(data, max_iteration=50, tol=1e-5):
         # If not, increase or decrease precision
         if Hdiff > 0:
             beta_min = beta
-            if np.isposinf(beta_max):
+            if np.isinf(beta_max):      # Numba compatibility: isposinf --> isinf
                 beta *= 2.
             else:
                 beta = (beta + beta_max) / 2.
         else:
             beta_max = beta
-            if np.isneginf(beta_min):
+            if np.isinf(beta_min):      # Numba compatibility: isneginf --> isinf
                 beta /= 2. 
             else:
                 beta = (beta + beta_min) / 2.
@@ -69,6 +71,7 @@ def x2p_job(data, max_iteration=50, tol=1e-5):
 
     return i, thisP
 
+# @numba.jit(parallel=True)
 def x2p(X, perplexity, n_jobs=None):        # Use all threads available
 
     n = X.shape[0]
@@ -80,15 +83,18 @@ def x2p(X, perplexity, n_jobs=None):        # Use all threads available
     idx = (1 - np.eye(n)).astype(bool)
     D = D[idx].reshape([n, -1])
 
-    def generator():
-        for i in range(n):
-            yield i, D[i], logU
-
     P = np.zeros([n, n])
-    with mp.Pool(n_jobs) as pool:
-        result = pool.map(x2p_job, generator())
-    for i, thisP in result:
-        P[i, idx[i]] = thisP
+    for i in range(n):
+        P[i, idx[i]] = x2p_job((i,D[i],logU))[1]
+
+    # def generator():
+    #     for i in range(n):
+    #         yield i, D[i], logU
+
+    # with mp.Pool(n_jobs) as pool:
+    #     result = pool.map(x2p_job, generator())
+    # for i, thisP in result:
+    #     P[i, idx[i]] = thisP
 
     return P
 
@@ -203,7 +209,7 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
                     # End-of-epoch: summarize
                     loss /= n_batches
 
-                    if epoch % 10 == 0:              # TODO: CHANGE HERE!
+                    if epoch % 10 == 0:
                         self._log('Epoch: {0} - Loss: {1:.3f}'.format(epoch, loss))
                     # Write log
                     write_log(callback, ['loss'], [loss], epoch)
@@ -285,14 +291,15 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         self._model.add(fc(n_output))
         self._model.compile('adam', self._kl_divergence)
 
-    @property
-    def model(self):
-        return self._model
-    
     def _log(self, *args, **kwargs):
         """logging with given arguments and keyword arguments"""
         if self.verbose >= 1:
             print(*args, **kwargs)
+
+    @property
+    def model(self):
+        return self._model
+    
 
 
 def main(args):
