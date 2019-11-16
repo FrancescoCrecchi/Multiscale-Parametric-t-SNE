@@ -78,10 +78,10 @@ def x2p(X, perplexity, n_jobs=None):        # Use all threads available
     logU = np.log(perplexity)
 
     sum_X = np.sum(np.square(X), axis=1)
-    D = sum_X + (sum_X.reshape([-1, 1]) - 2 * np.dot(X, X.T))
+    D = sum_X + (sum_X.reshape((-1, 1)) - 2 * np.dot(X, X.T))
 
     idx = (1 - np.eye(n)).astype(bool)
-    D = D[idx].reshape([n, -1])
+    D = D[idx].reshape((n, -1))
 
     P = np.zeros([n, n])
     for i in range(n):
@@ -173,8 +173,11 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
                 self._log('Start training..')
                 
                 # Tensorboard
-                callback = TensorBoard(self.logdir)
-                callback.set_model(self._model)
+                if not self.logdir == None:
+                    callback = TensorBoard(self.logdir)
+                    callback.set_model(self._model)
+                else:
+                    callback = None
 
                 # Early stopping
                 es_patience = self.early_stopping_epochs
@@ -183,26 +186,24 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
                 
                 epoch = 0
                 while epoch < self.n_iter and not es_stop:
-                    # Shuffle data and P as well!
+                    # Shuffle data
                     new_indices = np.random.permutation(n_sample)
                     X = X[new_indices]
+
+                    # Precompute P for all batches!
+                    P = self.calculate_P(X)
+
+                    # Early exaggeration        
+                    if epoch < self.early_exaggeration_epochs:
+                        P *= self.early_exaggeration_value
 
                     loss = 0.0
                     n_batches = 0
                     for i in range(0, n_sample, self._batch_size):
-
                         # Compute batch indices
                         batch_slice = slice(i, i + self._batch_size)
-
                         # Actual training
-                        P_batch = self.calculate_P(X[batch_slice], self.perplexity)
-
-                        # Early exaggeration        
-                        if epoch < self.early_exaggeration_epochs:
-                            P_batch *= self.early_exaggeration_value
-                            
-                        loss += self._model.train_on_batch(X[batch_slice], P_batch)
-
+                        loss += self._model.train_on_batch(X[batch_slice], P[batch_slice])
                         # Increase batch counter
                         n_batches += 1
                     
@@ -211,8 +212,10 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
 
                     if epoch % 10 == 0:
                         self._log('Epoch: {0} - Loss: {1:.3f}'.format(epoch, loss))
-                    # Write log
-                    write_log(callback, ['loss'], [loss], epoch)
+                    
+                    if callback is not None:
+                        # Write log
+                        write_log(callback, ['loss'], [loss], epoch)
 
                     # Check early-stopping condition
                     if loss < es_loss and np.abs(loss - es_loss) > self.early_stopping_min_improvement:
@@ -258,15 +261,16 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
 
     # ================================ Internals ================================
 
-    def calculate_P(self, X, perplexity):
+    def calculate_P(self, X):
         n = X.shape[0]
-
-        P = np.zeros([n, n])
-        P = x2p(X, perplexity)
-        P = P + P.T
-        P = P / P.sum()
-        P = np.maximum(P, 1e-8)
-        
+        P = np.zeros([n, self._batch_size])
+        for i in np.arange(0, n, self._batch_size):
+            P_batch = x2p(X[i:i + self._batch_size], self.perplexity)
+            P_batch[np.isnan(P_batch)] = 0
+            P_batch = P_batch + P_batch.T
+            P_batch = P_batch / P_batch.sum()
+            P_batch = np.maximum(P_batch, 1e-12)
+            P[i:i + self._batch_size] = P_batch
         return P
 
     def _kl_divergence(self, P, Y):
