@@ -29,7 +29,7 @@ class MultiscaleParametricTSNE(ParametricTSNE):
                          nl3 = nl3,
                          logdir=logdir, verbose=verbose)
     
-    def calculate_P(self, X, perplexity):
+    def _calculate_P(self, X, perplexity):
         # Compute multi-scale Gaussian similarities with exponentially growing perplexities
         N = X.shape[0]
         H = np.rint(np.log2(N/2))

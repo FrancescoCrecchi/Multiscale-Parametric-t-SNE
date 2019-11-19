@@ -20,9 +20,9 @@ from keras.layers import Dense as fc, InputLayer
 from keras.layers import Dropout
 from keras.callbacks import TensorBoard
 from keras.optimizers import Adam
+
 import tensorflow as tf
 
-import multiprocessing as mp
 
 @numba.jit(nopython=True)
 def Hbeta(D, beta):
@@ -45,7 +45,6 @@ def x2p_job(data, max_iteration=50, tol=1e-5):
 
     tries = 0
     while tries < max_iteration and np.abs(Hdiff) > tol:
-        thisP_old = thisP.copy()
     
         # If not, increase or decrease precision
         if Hdiff > 0:
@@ -62,17 +61,12 @@ def x2p_job(data, max_iteration=50, tol=1e-5):
                 beta = (beta + beta_min) / 2.
 
         H, thisP = Hbeta(Di, beta)
-        if np.isnan(thisP).any():
-            thisP = thisP_old.copy()
-            break
-
         Hdiff = H - logU
         tries += 1
 
     return i, thisP
 
-# @numba.jit(parallel=True)
-def x2p(X, perplexity, n_jobs=None):        # Use all threads available
+def x2p(X, perplexity, n_jobs=None):
 
     n = X.shape[0]
     logU = np.log(perplexity)
@@ -86,15 +80,6 @@ def x2p(X, perplexity, n_jobs=None):        # Use all threads available
     P = np.zeros([n, n])
     for i in range(n):
         P[i, idx[i]] = x2p_job((i,D[i],logU))[1]
-
-    # def generator():
-    #     for i in range(n):
-    #         yield i, D[i], logU
-
-    # with mp.Pool(n_jobs) as pool:
-    #     result = pool.map(x2p_job, generator())
-    # for i, thisP in result:
-    #     P[i, idx[i]] = thisP
 
     return P
 
@@ -155,7 +140,7 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         self.graph = tf.Graph()
         self.sess = tf.Session(config=config, graph=self.graph)
         
-    def fit(self, X, y=None, batch_size=None):
+    def fit(self, X, y=None, batch_size=5000):
 
         # Setting session
         with self.graph.as_default():
@@ -183,28 +168,26 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
                 es_patience = self.early_stopping_epochs
                 es_loss = np.inf
                 es_stop = False
+
+                # Precompute P (once for all!)
+                P = self._calculate_P(X)
                 
                 epoch = 0
                 while epoch < self.n_iter and not es_stop:
-                    # Shuffle data
-                    new_indices = np.random.permutation(n_sample)
-                    X = X[new_indices]
 
-                    # Precompute P for all batches!
-                    P = self.calculate_P(X)
-
+                    # Make copy
+                    _P = P.copy()
+            
                     # Early exaggeration        
                     if epoch < self.early_exaggeration_epochs:
-                        P *= self.early_exaggeration_value
+                        _P *= self.early_exaggeration_value
 
+                    # Actual training
                     loss = 0.0
                     n_batches = 0
                     for i in range(0, n_sample, self._batch_size):
-                        # Compute batch indices
                         batch_slice = slice(i, i + self._batch_size)
-                        # Actual training
-                        loss += self._model.train_on_batch(X[batch_slice], P[batch_slice])
-                        # Increase batch counter
+                        loss += self._model.train_on_batch(X[batch_slice], _P[batch_slice])
                         n_batches += 1
                     
                     # End-of-epoch: summarize
@@ -227,6 +210,9 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
                     if es_patience == 0:
                         self._log('Early stopping!')
                         es_stop = True
+
+                    # Free-up memory
+                    del _P
                     
                     epoch += 1
 
@@ -252,7 +238,7 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
 
         return X_new
 
-    def fit_transform(self, X, y=None, batch_size=None):
+    def fit_transform(self, X, y=None, batch_size=5000):
         """fit the model with X and apply the dimensionality reduction on X."""
         self.fit(X, y, batch_size)
 
@@ -261,7 +247,7 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
 
     # ================================ Internals ================================
 
-    def calculate_P(self, X):
+    def _calculate_P(self, X):
         n = X.shape[0]
         P = np.zeros([n, self._batch_size])
         for i in np.arange(0, n, self._batch_size):

@@ -17,7 +17,7 @@ def plot_mnist(X_2d, y, fname):
     plt.figure(figsize=(6, 5))
     colors = 'r', 'g', 'b', 'c', 'm', 'y', 'k', 'w', 'orange', 'purple'
     for i, c in zip(np.unique(y), colors):
-        plt.scatter(X_2d[y == i, 0], X_2d[y == i, 1], c=c, label=str(i), s=8)
+        plt.scatter(X_2d[y == i, 0], X_2d[y == i, 1], c=c, label=str(i), s=2)
     plt.legend()
     plt.savefig(fname)
 
@@ -25,19 +25,19 @@ def plot_mnist(X_2d, y, fname):
 if __name__ == "__main__":
     
     # Set parameters
-    N = 10000
-    BS = 5000
-    N_EPOCHS = 50
+    N = None
+    # BS = 5000
+    N_EPOCHS = 100
 
     # Load data
     tr = loadmat('mnist_train.mat')
-    np.random.RandomState(1234)
-    ind = np.random.permutation(tr['train_X'].shape[0])
-    # ind = np.arange(tr['train_X'].shape[0])
+    # np.random.RandomState(1234)
+    # ind = np.random.permutation(tr['train_X'].shape[0])
+    ind = np.arange(tr['train_X'].shape[0])
     train_X = tr['train_X'][ind[:N]]
     train_labels = tr['train_labels'][ind[:N]]
 
-    X, y = train_X, train_labels.flatten()
+    X, y = train_X, train_labels.flatten() - 1      # Matlab classes are 1-based -> 0-based in Python
     print("Dataset size: {0}".format(X.shape[0]))
 
     # Perform PCA over the first 50 dimensions
@@ -60,9 +60,6 @@ if __name__ == "__main__":
         n_components=2,
         perplexity=30,
         n_iter=N_EPOCHS,
-        early_exaggeration_epochs=50,
-        early_exaggeration_value=4.,
-        early_stopping_epochs=np.inf,
         verbose=1)
 
     # ptSNE = MultiscaleParametricTSNE(
@@ -73,7 +70,7 @@ if __name__ == "__main__":
     #     early_stopping_epochs=np.inf,
     #     verbose=1)
 
-    embds = ptSNE.fit_transform(X, batch_size=BS)
+    embds = ptSNE.fit_transform(X)#, batch_size=BS)
         
     OUTPUT_DIR = "output/mnist"
     if not os.path.exists(OUTPUT_DIR):
