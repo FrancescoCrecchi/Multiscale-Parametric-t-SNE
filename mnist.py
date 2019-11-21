@@ -25,15 +25,15 @@ def plot_mnist(X_2d, y, fname):
 if __name__ == "__main__":
     
     # Set parameters
-    N = None
-    # BS = 5000
+    N = 10000
+    BS = 5000
     N_EPOCHS = 100
 
     # Load data
     tr = loadmat('mnist_train.mat')
-    # np.random.RandomState(1234)
-    # ind = np.random.permutation(tr['train_X'].shape[0])
-    ind = np.arange(tr['train_X'].shape[0])
+    np.random.RandomState(1234)
+    ind = np.random.permutation(tr['train_X'].shape[0])
+    # ind = np.arange(tr['train_X'].shape[0])
     train_X = tr['train_X'][ind[:N]]
     train_labels = tr['train_labels'][ind[:N]]
 
@@ -70,7 +70,7 @@ if __name__ == "__main__":
     #     early_stopping_epochs=np.inf,
     #     verbose=1)
 
-    embds = ptSNE.fit_transform(X)#, batch_size=BS)
+    embds = ptSNE.fit_transform(X, batch_size=BS)
         
     OUTPUT_DIR = "output/mnist"
     if not os.path.exists(OUTPUT_DIR):

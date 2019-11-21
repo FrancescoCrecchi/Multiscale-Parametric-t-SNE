@@ -24,12 +24,14 @@ from keras.optimizers import Adam
 import tensorflow as tf
 
 
-@numba.jit(nopython=True)
+@numba.jit(nopython=True, error_model='numpy')          # https://github.com/numba/numba/issues/4360
 def Hbeta(D, beta):
+
     P = np.exp(-D * beta)
-    sumP = np.sum(P)
-    H = np.log(sumP) + beta * np.sum(D * P) / sumP
-    P = P / sumP
+    sumP = np.sum(P)                                    # ACHTUNG! This could be zero!
+    H = np.log(sumP) + beta * np.sum(D * P) / sumP      # ACHTUNG! Divide-by-zero possible here!
+    P = P / sumP                                        # ACHTUNG! Divide-by-zero possible here!
+    
     return H, P
 
 @numba.jit(nopython=True)
@@ -39,7 +41,7 @@ def x2p_job(data, max_iteration=50, tol=1e-5):
     beta = 1.0
     beta_min = -np.inf
     beta_max = np.inf
-
+    
     H, thisP = Hbeta(Di, beta)
     Hdiff = H - logU
 
@@ -97,6 +99,7 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
 
     def __init__(self, n_components=2, perplexity=30.,
                 n_iter=1000,
+                batch_size=500,
                 early_exaggeration_epochs = 50,
                 early_exaggeration_value = 4.,
                 early_stopping_epochs = np.inf,
@@ -110,6 +113,7 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         self.n_components = n_components
         self.perplexity = perplexity
         self.n_iter = n_iter
+        self.batch_size = batch_size
         self.verbose = verbose
 
         # FFNet architecture
@@ -132,7 +136,6 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
 
         # Internals
         self._model = None
-        self._batch_size = None
 
         # Session handling
         config = tf.ConfigProto()
@@ -140,16 +143,20 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         self.graph = tf.Graph()
         self.sess = tf.Session(config=config, graph=self.graph)
         
-    def fit(self, X, y=None, batch_size=5000):
+    def fit(self, X, y=None):
 
         # Setting session
         with self.graph.as_default():
             with self.sess.as_default():
                 
                 """fit the model with X"""
-                n_sample, n_feature = X.shape
 
-                self._batch_size = batch_size if batch_size is not None else n_sample
+                # TODO: HACK! REDUCE 'X' TO MAKE IT MULTIPLE OF BATCH_SIZE!
+                m = X.shape[0] % self.batch_size
+                if m > 0:
+                    X = X[:-m]
+
+                n_sample, n_feature = X.shape
 
                 self._log('Building model..', end=' ')
                 self._build_model(n_feature, self.n_components)
@@ -185,8 +192,8 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
                     # Actual training
                     loss = 0.0
                     n_batches = 0
-                    for i in range(0, n_sample, self._batch_size):
-                        batch_slice = slice(i, i + self._batch_size)
+                    for i in range(0, n_sample, self.batch_size):
+                        batch_slice = slice(i, i + self.batch_size)
                         loss += self._model.train_on_batch(X[batch_slice], _P[batch_slice])
                         n_batches += 1
                     
@@ -238,7 +245,7 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
 
         return X_new
 
-    def fit_transform(self, X, y=None, batch_size=5000):
+    def fit_transform(self, X, y=None, batch_size=None):
         """fit the model with X and apply the dimensionality reduction on X."""
         self.fit(X, y, batch_size)
 
@@ -249,14 +256,14 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
 
     def _calculate_P(self, X):
         n = X.shape[0]
-        P = np.zeros([n, self._batch_size])
-        for i in np.arange(0, n, self._batch_size):
-            P_batch = x2p(X[i:i + self._batch_size], self.perplexity)
+        P = np.zeros([n, self.batch_size])
+        for i in np.arange(0, n, self.batch_size):
+            P_batch = x2p(X[i:i + self.batch_size], self.perplexity)
             P_batch[np.isnan(P_batch)] = 0
             P_batch = P_batch + P_batch.T
             P_batch = P_batch / P_batch.sum()
             P_batch = np.maximum(P_batch, 1e-12)
-            P[i:i + self._batch_size] = P_batch
+            P[i:i + self.batch_size] = P_batch
         return P
 
     def _kl_divergence(self, P, Y):
@@ -264,7 +271,7 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         eps = K.variable(1e-15)
         D = sum_Y + K.reshape(sum_Y, [-1, 1]) - 2 * K.dot(Y, K.transpose(Y))
         Q = K.pow(1 + D / self.alpha, -(self.alpha + 1) / 2)
-        Q *= K.variable(1 - np.eye(self._batch_size))
+        Q *= K.variable(1 - np.eye(self.batch_size))
         Q /= K.sum(Q)
         Q = K.maximum(Q, eps)
         C = K.log((P + eps) / (Q + eps))
