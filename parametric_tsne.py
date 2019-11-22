@@ -16,7 +16,7 @@ setGPU()
 import keras.backend as K
 from keras.models import Sequential
 from keras.losses import kld
-from keras.layers import Dense as fc, InputLayer
+from keras.layers import Dense, InputLayer
 from keras.layers import Dropout
 from keras.callbacks import TensorBoard
 from keras.optimizers import Adam
@@ -245,9 +245,9 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
 
         return X_new
 
-    def fit_transform(self, X, y=None, batch_size=None):
+    def fit_transform(self, X, y=None):
         """fit the model with X and apply the dimensionality reduction on X."""
-        self.fit(X, y, batch_size)
+        self.fit(X, y)
 
         X_new = self.transform(X)
         return X_new
@@ -284,8 +284,8 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         self._model.add(InputLayer((n_input,)))
         # Layer adding loop
         for n in [self.nl1, self.nl2, self.nl3]:
-            self._model.add(fc(n, activation='relu'))
-        self._model.add(fc(n_output))
+            self._model.add(Dense(n, activation='sigmoid'))
+        self._model.add(Dense(n_output, activation='linear'))
         self._model.compile('adam', self._kl_divergence)
 
     def _log(self, *args, **kwargs):

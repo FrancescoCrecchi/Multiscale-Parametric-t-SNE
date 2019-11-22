@@ -70,7 +70,7 @@ if __name__ == "__main__":
     #     early_stopping_epochs=np.inf,
     #     verbose=1)
 
-    embds = ptSNE.fit_transform(X, batch_size=BS)
+    embds = ptSNE.fit_transform(X)
         
     OUTPUT_DIR = "output/mnist"
     if not os.path.exists(OUTPUT_DIR):
