@@ -25,24 +25,30 @@ def plot_mnist(X_2d, y, fname):
 if __name__ == "__main__":
     
     # Set parameters
-    N = 10000
-    BS = 5000
-    N_EPOCHS = 100
+    N = None
+    BS = 500
+    N_EPOCHS = 500
 
-    # Load data
-    tr = loadmat('mnist_train.mat')
-    np.random.RandomState(1234)
-    ind = np.random.permutation(tr['train_X'].shape[0])
-    # ind = np.arange(tr['train_X'].shape[0])
-    train_X = tr['train_X'][ind[:N]]
-    train_labels = tr['train_labels'][ind[:N]]
+    # # Load data
+    # tr = loadmat('mnist_train.mat')
+    # np.random.RandomState(1234)
+    # ind = np.random.permutation(tr['train_X'].shape[0])
+    # # ind = np.arange(tr['train_X'].shape[0])
+    # train_X = tr['train_X'][ind][:N]
+    # train_labels = tr['train_labels'][ind][:N]
 
-    X, y = train_X, train_labels.flatten() - 1      # Matlab classes are 1-based -> 0-based in Python
-    print("Dataset size: {0}".format(X.shape[0]))
+    # X, y = train_X, train_labels.flatten() - 1      # Matlab classes are 1-based -> 0-based in Python
+    # print("Dataset size: {0}".format(X.shape[0]))
 
-    # Perform PCA over the first 50 dimensions
-    from sklearn.decomposition import PCA
-    X = PCA(50).fit_transform(X)
+    # # Perform PCA over the first 50 dimensions
+    # from sklearn.decomposition import PCA
+    # X = PCA(50).fit_transform(X)
+    
+    # TODO: ++++++++++++++ DEBUG ++++++++++++++ 
+    # d = {'X': X, 'y': y}
+    # np.save('output/mnist/d.npy', d)
+    d = np.load('output/mnist/d.npy', allow_pickle=True).item()
+    X, y = d['X'], d['y']
     
     # # Construct mappings using sklearn implementation
     # sk_tSNE = TSNE(verbose=1)
@@ -55,11 +61,11 @@ if __name__ == "__main__":
     # plot_mnist(embds, y, 'mnist_sk_plot.png')
     
     # Construct mappings        
-
     ptSNE = ParametricTSNE(
         n_components=2,
         perplexity=30,
         n_iter=N_EPOCHS,
+        batch_size=BS,
         verbose=1)
 
     # ptSNE = MultiscaleParametricTSNE(

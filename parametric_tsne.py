@@ -177,13 +177,20 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
                 es_stop = False
 
                 # Precompute P (once for all!)
-                P = self._calculate_P(X)
+                P = self._calculate_P(X)                
                 
+                # TODO: +++++++++++++++  ACHTUNG DEBUG! +++++++++++++++
+                # np.save('output/mnist/P.npy', P)
+                # P = np.load('output/mnist/P.npy', allow_pickle=True)
+
                 epoch = 0
                 while epoch < self.n_iter and not es_stop:
 
                     # Make copy
                     _P = P.copy()
+
+                    ## Shuffle entries
+                    # p_idxs = np.random.permutation(self.batch_size)
             
                     # Early exaggeration        
                     if epoch < self.early_exaggeration_epochs:
@@ -193,8 +200,19 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
                     loss = 0.0
                     n_batches = 0
                     for i in range(0, n_sample, self.batch_size):
+                        
                         batch_slice = slice(i, i + self.batch_size)
-                        loss += self._model.train_on_batch(X[batch_slice], _P[batch_slice])
+                        X_batch, _P_batch = X[batch_slice], _P[batch_slice]
+                        
+                        # Shuffle entries
+                        p_idxs = np.random.permutation(self.batch_size)
+                        # Shuffle data
+                        X_batch = X_batch[p_idxs]
+                        # Shuffle rows and cols of P
+                        _P_batch = _P_batch[p_idxs, :]
+                        _P_batch = _P_batch[:, p_idxs]
+
+                        loss += self._model.train_on_batch(X_batch, _P_batch)
                         n_batches += 1
                     
                     # End-of-epoch: summarize
@@ -257,7 +275,8 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
     def _calculate_P(self, X):
         n = X.shape[0]
         P = np.zeros([n, self.batch_size])
-        for i in np.arange(0, n, self.batch_size):
+        self._log("Computing P...")
+        for i in tqdm(np.arange(0, n, self.batch_size)):
             P_batch = x2p(X[i:i + self.batch_size], self.perplexity)
             P_batch[np.isnan(P_batch)] = 0
             P_batch = P_batch + P_batch.T
@@ -301,10 +320,8 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
 
 def main(args):
     from sklearn.preprocessing import StandardScaler
-
+    
     RESULT_DIR = pathlib.Path('result')
-
-    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
     print('Loading dataset.. ', end='')
     dataset = np.load(args.dataset).astype(np.float32)
