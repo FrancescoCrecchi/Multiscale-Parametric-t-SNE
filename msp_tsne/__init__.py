@@ -1,0 +1,2 @@
+from msp_tsne.parametric_tsne import ParametricTSNE
+from msp_tsne.ms_parametric_tsne import MultiscaleParametricTSNE

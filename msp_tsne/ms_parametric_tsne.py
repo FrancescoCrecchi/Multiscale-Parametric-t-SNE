@@ -1,6 +1,6 @@
 import numpy as np
 from tqdm import tqdm
-from parametric_tsne import ParametricTSNE, x2p
+from msp_tsne.parametric_tsne import ParametricTSNE, x2p
 
 
 class MultiscaleParametricTSNE(ParametricTSNE):

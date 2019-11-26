@@ -2,8 +2,7 @@ import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from sklearn.datasets import load_digits
-from parametric_tsne import ParametricTSNE
-from ms_parametric_tsne import MultiscaleParametricTSNE
+from msp_tsne import ParametricTSNE, MultiscaleParametricTSNE
 
 
 def plot_embeds(X_2d, y):

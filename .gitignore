@@ -167,3 +167,7 @@ pip-selfcheck.json
 tensorboard/*
 
 events.out.tfevents.*
+
+
+# FC
+*.egg-info
