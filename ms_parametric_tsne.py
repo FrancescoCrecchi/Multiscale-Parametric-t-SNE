@@ -12,9 +12,9 @@ class MultiscaleParametricTSNE(ParametricTSNE):
                 early_exaggeration_value = 4.,
                 early_stopping_epochs = np.inf,
                 early_stopping_min_improvement = 1e-2,
-                nl1 = 500,
+                nl1 = 1000,
                 nl2 = 500,
-                nl3 = 2000,
+                nl3 = 250,
                 logdir=None, verbose=0):
 
         # Fake perplexity init.

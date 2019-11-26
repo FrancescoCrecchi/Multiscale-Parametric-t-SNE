@@ -1,7 +1,5 @@
-import pathlib
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-import argparse
 
 from tqdm import tqdm
 import numpy as np
@@ -10,14 +8,9 @@ import numba
 import sklearn
 from sklearn.base import BaseEstimator, TransformerMixin
 
-from setGPU import setGPU
-setGPU()
-
 import keras.backend as K
 from keras.models import Sequential
-from keras.losses import kld
-from keras.layers import Dense, InputLayer
-from keras.layers import Dropout
+from keras.layers import Dense, InputLayer, Dropout
 from keras.callbacks import TensorBoard
 from keras.optimizers import Adam
 
@@ -105,9 +98,9 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
                 early_stopping_epochs = np.inf,
                 early_stopping_min_improvement = 1e-2,
                 alpha = 1,
-                nl1 = 500,
+                nl1 = 1000,
                 nl2 = 500,
-                nl3 = 2000,
+                nl3 = 250,
                 logdir=None, verbose=0):
         
         self.n_components = n_components
@@ -136,129 +129,113 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
 
         # Internals
         self._model = None
-
-        # Session handling
-        config = tf.ConfigProto()
-        config.gpu_options.allow_growth = True
-        self.graph = tf.Graph()
-        self.sess = tf.Session(config=config, graph=self.graph)
         
     def fit(self, X, y=None):
-
-        # Setting session
-        with self.graph.as_default():
-            with self.sess.as_default():
                 
-                """fit the model with X"""
+        """fit the model with X"""
+        
+        # HACK! REDUCE 'X' TO MAKE IT MULTIPLE OF BATCH_SIZE!
+        m = X.shape[0] % self.batch_size
+        if m > 0:
+            X = X[:-m]
 
-                # TODO: HACK! REDUCE 'X' TO MAKE IT MULTIPLE OF BATCH_SIZE!
-                m = X.shape[0] % self.batch_size
-                if m > 0:
-                    X = X[:-m]
+        n_sample, n_feature = X.shape
 
-                n_sample, n_feature = X.shape
+        self._log('Building model..', end=' ')
+        self._build_model(n_feature, self.n_components)
+        self._log('Done')
 
-                self._log('Building model..', end=' ')
-                self._build_model(n_feature, self.n_components)
-                self._log('Done')
+        self._log('Start training..')
+        
+        # Tensorboard
+        if not self.logdir == None:
+            callback = TensorBoard(self.logdir)
+            callback.set_model(self._model)
+        else:
+            callback = None
 
-                self._log('Start training..')
+        # Early stopping
+        es_patience = self.early_stopping_epochs
+        es_loss = np.inf
+        es_stop = False
+
+        # Precompute P (once for all!)
+        P = self._calculate_P(X)                
+        
+        epoch = 0
+        while epoch < self.n_iter and not es_stop:
+
+            # Make copy
+            _P = P.copy()
+
+            ## Shuffle entries
+            # p_idxs = np.random.permutation(self.batch_size)
+    
+            # Early exaggeration        
+            if epoch < self.early_exaggeration_epochs:
+                _P *= self.early_exaggeration_value
+
+            # Actual training
+            loss = 0.0
+            n_batches = 0
+            for i in range(0, n_sample, self.batch_size):
                 
-                # Tensorboard
-                if not self.logdir == None:
-                    callback = TensorBoard(self.logdir)
-                    callback.set_model(self._model)
-                else:
-                    callback = None
-
-                # Early stopping
-                es_patience = self.early_stopping_epochs
-                es_loss = np.inf
-                es_stop = False
-
-                # Precompute P (once for all!)
-                P = self._calculate_P(X)                
+                batch_slice = slice(i, i + self.batch_size)
+                X_batch, _P_batch = X[batch_slice], _P[batch_slice]
                 
-                # TODO: +++++++++++++++  ACHTUNG DEBUG! +++++++++++++++
-                # np.save('output/mnist/P.npy', P)
-                # P = np.load('output/mnist/P.npy', allow_pickle=True)
+                # Shuffle entries
+                p_idxs = np.random.permutation(self.batch_size)
+                # Shuffle data
+                X_batch = X_batch[p_idxs]
+                # Shuffle rows and cols of P
+                _P_batch = _P_batch[p_idxs, :]
+                _P_batch = _P_batch[:, p_idxs]
 
-                epoch = 0
-                while epoch < self.n_iter and not es_stop:
-
-                    # Make copy
-                    _P = P.copy()
-
-                    ## Shuffle entries
-                    # p_idxs = np.random.permutation(self.batch_size)
+                loss += self._model.train_on_batch(X_batch, _P_batch)
+                n_batches += 1
             
-                    # Early exaggeration        
-                    if epoch < self.early_exaggeration_epochs:
-                        _P *= self.early_exaggeration_value
+            # End-of-epoch: summarize
+            loss /= n_batches
 
-                    # Actual training
-                    loss = 0.0
-                    n_batches = 0
-                    for i in range(0, n_sample, self.batch_size):
-                        
-                        batch_slice = slice(i, i + self.batch_size)
-                        X_batch, _P_batch = X[batch_slice], _P[batch_slice]
-                        
-                        # Shuffle entries
-                        p_idxs = np.random.permutation(self.batch_size)
-                        # Shuffle data
-                        X_batch = X_batch[p_idxs]
-                        # Shuffle rows and cols of P
-                        _P_batch = _P_batch[p_idxs, :]
-                        _P_batch = _P_batch[:, p_idxs]
+            if epoch % 10 == 0:
+                self._log('Epoch: {0} - Loss: {1:.3f}'.format(epoch, loss))
+            
+            if callback is not None:
+                # Write log
+                write_log(callback, ['loss'], [loss], epoch)
 
-                        loss += self._model.train_on_batch(X_batch, _P_batch)
-                        n_batches += 1
-                    
-                    # End-of-epoch: summarize
-                    loss /= n_batches
+            # Check early-stopping condition
+            if loss < es_loss and np.abs(loss - es_loss) > self.early_stopping_min_improvement:
+                es_loss = loss
+                es_patience = self.early_stopping_epochs
+            else:
+                es_patience -= 1
 
-                    if epoch % 10 == 0:
-                        self._log('Epoch: {0} - Loss: {1:.3f}'.format(epoch, loss))
-                    
-                    if callback is not None:
-                        # Write log
-                        write_log(callback, ['loss'], [loss], epoch)
+            if es_patience == 0:
+                self._log('Early stopping!')
+                es_stop = True
 
-                    # Check early-stopping condition
-                    if loss < es_loss and np.abs(loss - es_loss) > self.early_stopping_min_improvement:
-                        es_loss = loss
-                        es_patience = self.early_stopping_epochs
-                    else:
-                        es_patience -= 1
+            # Going to the next iteration...
+            del _P    
+            epoch += 1
 
-                    if es_patience == 0:
-                        self._log('Early stopping!')
-                        es_stop = True
-
-                    # Free-up memory
-                    del _P
-                    
-                    epoch += 1
-
-            self._log('Done')
+        self._log('Done')
 
         return self  # scikit-learn does so..
         
     def transform(self, X):
 
-        with self.graph.as_default():
-            with self.sess.as_default():
-                """apply dimensionality reduction to X"""
-                # fit should have been called before
-                if self.model is None:
-                    raise sklearn.exceptions.NotFittedError(
-                        'This ParametricTSNE instance is not fitted yet. Call \'fit\''
-                        ' with appropriate arguments before using this method.')
+        
+        """apply dimensionality reduction to X"""
+        # fit should have been called before
+        if self.model is None:
+            raise sklearn.exceptions.NotFittedError(
+                'This ParametricTSNE instance is not fitted yet. Call \'fit\''
+                ' with appropriate arguments before using this method.')
 
-                self._log('Predicting embedding points..', end=' ')
-                X_new = self.model.predict(X)
-   
+        self._log('Predicting embedding points..', end=' ')
+        X_new = self.model.predict(X)
+
         self._log('Done')
 
         return X_new
@@ -315,55 +292,3 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
     @property
     def model(self):
         return self._model
-    
-
-
-def main(args):
-    from sklearn.preprocessing import StandardScaler
-    
-    RESULT_DIR = pathlib.Path('result')
-
-    print('Loading dataset.. ', end='')
-    dataset = np.load(args.dataset).astype(np.float32)
-    print('Done')
-
-    # Scaling dataset
-    dataset = StandardScaler().fit_transform(dataset)
-
-    ptsne = ParametricTSNE(
-        n_components=args.n_components,
-        perplexity=args.perplexity,
-        n_iter=args.n_iter,
-        verbose=1,
-        logdir=args.logdir)
-
-    pred = ptsne.fit_transform(dataset)
-    np.save(RESULT_DIR / 'output.npy', pred)
-
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(
-        description='Parametric t-SNE.')
-    subparsers = parser.add_subparsers(dest='command')
-
-    train_group = subparsers.add_parser(
-        'train',
-        description='Train a new parametric t-SNE model.')
-    parser.add_argument(
-        '--dataset', type=pathlib.Path,
-        default=pathlib.Path('dataset', 'sample.npy'),
-        help='dataset for training')
-    parser.add_argument(
-        '--n-components', type=int, default=2,
-        help='dimension of embedded space')
-    parser.add_argument(
-        '--perplexity', type=float, default=30.,
-        help='perplexity value')
-    parser.add_argument(
-        '--n-iter', type=int, default=1000,
-        help='number of training epochs')
-    parser.add_argument(
-        '--logdir', type=str, default='None',
-        help='where to store Tensorboard logs')
-
-    main(parser.parse_args())
