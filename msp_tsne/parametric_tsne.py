@@ -134,10 +134,13 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
                 
         """fit the model with X"""
         
-        # HACK! REDUCE 'X' TO MAKE IT MULTIPLE OF BATCH_SIZE!
-        m = X.shape[0] % self.batch_size
-        if m > 0:
-            X = X[:-m]
+        if self.batch_size is None:
+            self.batch_size = X.shape[0]
+        else:
+            # HACK! REDUCE 'X' TO MAKE IT MULTIPLE OF BATCH_SIZE!
+            m = X.shape[0] % self.batch_size
+            if m > 0:
+                X = X[:-m]
 
         n_sample, n_feature = X.shape
 
@@ -280,7 +283,7 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
         self._model.add(InputLayer((n_input,)))
         # Layer adding loop
         for n in [self.nl1, self.nl2, self.nl3]:
-            self._model.add(Dense(n, activation='sigmoid'))
+            self._model.add(Dense(n, activation='relu'))
         self._model.add(Dense(n_output, activation='linear'))
         self._model.compile('adam', self._kl_divergence)
 

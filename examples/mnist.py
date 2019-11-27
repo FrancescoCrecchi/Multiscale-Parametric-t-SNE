@@ -17,6 +17,7 @@ def plot_embeds(X_2d, y):
 if __name__ == '__main__':
 
     X, y = load_digits(return_X_y=True)
+    X /= 255.
 
     ptsne = ParametricTSNE(n_components=2, perplexity=30, verbose=1)
     # ptsne = MultiscaleParametricTSNE(n_components=2, verbose=1)
