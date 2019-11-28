@@ -237,7 +237,7 @@ class ParametricTSNE(BaseEstimator, TransformerMixin):
                 ' with appropriate arguments before using this method.')
 
         self._log('Predicting embedding points..', end=' ')
-        X_new = self.model.predict(X)
+        X_new = self.model.predict(X, batch_size=X.shape[0])
 
         self._log('Done')
 
