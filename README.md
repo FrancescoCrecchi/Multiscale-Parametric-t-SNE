@@ -1,6 +1,7 @@
-# Parametric t-SNE  
 
-t-distributed stochastic neighbor embedding, abbreviated as t-SNE, provides the novel method to apply non-linear dimensionality reduction technique that preserves the local structure of original dataset. However, in order to transform newly prepared points, a model must be re-trained with whole dataset. This would be extremely inefficient provided that our previous dataset describes the plausible distribution already. Parametric t-SNE instead gives you an explicit mapping between original data and the embedded points. It is achieved by building a parametric model for prediction and training it using the same loss as t-SNE.
+# Multiscale Parametric t-SNE
+
+multiscale extension of parametric t-SNE which relieves the user from tuning the `perplexity` parameter (either by hand or via cross-validation). It is proven to better retain both the local and the global data structure than original parametric t-SNE.
 
 ## Getting Started
 
@@ -8,32 +9,24 @@ These instructions will get you a copy of the project up and running on your loc
 
 ### Prerequisites
 
-This program was tested under Python 3.6. All necessary packages are contained inside `requirements.txt`.
+This program was tested under Python 3.7. All the required packages are contained in `setup.py`
 
 ### Installing
 
-After cloning this repository, install required packages by running the following:
+After cloning this repository, install the package by running the following:
 
 ```
-pip3 install -r requirements.txt
-```
-
-## Running the Tests
-
-`parametric_tsne.py` can be run directly from command-line. See help for details.
-
-```
-python3 parametric_tsne.py -h
+pip3 install .
 ```
 
 ## Deployment
 
-Simply create `ParametricTSNE` instance. The interface was designed similarly to that of scikit-learn estimators.
+Simply create a `ParametricTSNE` or `MultiscaleParametricTSNE` instance. The interface was designed similarly to that of scikit-learn estimators.
 
 ```python
-from parametric_tsne import ParametricTSNE
+from msp_tsne import MultiscaleParametricTSNE
 
-transformer = ParametricTSNE()
+transformer = MultiscaleParametricTSNE()
 
 # suppose you have the dataset X
 X_new = transformer.fit_transform(X)
@@ -50,7 +43,7 @@ X2_new = transformer.transform(X2)
 
 ## Authors
 
-- __Luke Lee__ - Research and implementation - [luke0201](https://github.com/luke0201)
+- __Francesco Crecchi__ - Research and implementation - [FrancescoCrecchi](https://github.com/FrancescoCrecchi)
 
 ## Acknowledgements
 
