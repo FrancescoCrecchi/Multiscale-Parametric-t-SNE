@@ -24,7 +24,7 @@ setuptools.setup(
         'numba',
         'scikit-learn',
         'tqdm',
-        'tensorflow < 2.0',
-        'keras'
+        'tensorflow==1.14.0',
+        'keras==2.3.1'
     ]
 )

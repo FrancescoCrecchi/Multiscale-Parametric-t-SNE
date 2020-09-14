@@ -1,7 +1,13 @@
 
 # Multiscale Parametric t-SNE
+Reference implementation for the paper: ["Perplexity-free Parametric t-SNE"](#).
 
-multiscale extension of parametric t-SNE which relieves the user from tuning the `perplexity` parameter (either by hand or via cross-validation). It is proven to better retain both the local and the global data structure than original parametric t-SNE.
+Multiscale extension of parametric t-SNE which relieves the user from tuning the `perplexity` parameter (either by hand or via cross-validation).
+This implementation exploits [keras](https://keras.io/) to provide GPU acceleration during model training and inference, while maintaining a [scikit-learn](https://scikit-learn.org/)
+compatible interface that allows to use `MultiscaleParamerticTSNE` as part of a [pipeline](https://scikit-learn.org/stable/modules/compose.html#combining-estimators) replacing the library t-SNE implementation.
+
+In addition to the perplexity-free model, a refined `ParamerticTSNE` model is released.
+As for the multiscale implementation, it favours of GPU acceleration for neural network training and inference and is sklearn compatible. This allows the user to search for the best perplexity parameter using `sklearn.model_selection.GridSearchCV` module, for example.      
 
 ## Getting Started
 
@@ -9,7 +15,7 @@ These instructions will get you a copy of the project up and running on your loc
 
 ### Prerequisites
 
-This program was tested under Python 3.7. All the required packages are contained in `setup.py`
+This program was tested under Python 3.6. All the required packages are contained in `setup.py`
 
 ### Installing
 
