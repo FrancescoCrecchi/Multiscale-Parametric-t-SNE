@@ -10,15 +10,35 @@ from sklearn.preprocessing import StandardScaler
 
 from msp_tsne import MultiscaleParametricTSNE
 
+def plot(X_train, X_test, y_train, y_test):
+    # Plot
+    colors = cm.rainbow(np.linspace(0, 1, 10))
+    # Train
+    fig, ax = plt.subplots()
+    ax.set_title('MNIST - Training scenario')
+    for c in range(10):
+        ax.scatter(X_train[y_train == c, 0], X_train[y_train == c, 1], s=8, color=colors[c], alpha=.6)
+    fig.tight_layout()
+    fig.show()
+    # Extended
+    fig, ax = plt.subplots()
+    ax.set_title('MNIST - Extended scenario')
+    X, y = np.vstack((X_train, X_test)), np.concatenate((y_train, y_test))
+    for c in range(10):
+        ax.scatter(X[y == c, 0], X[y == c, 1], s=8, color=colors[c], alpha=.6)
+    fig.tight_layout()
+    fig.show()
+
+
 if __name__ == '__main__':
 
     X, y = load_digits(return_X_y=True)
-    X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=0)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=.25, random_state=0)
 
     pipe = Pipeline([
         ('scaler', StandardScaler()),
         ('msp_tsne', (MultiscaleParametricTSNE(n_components=2,
-                                               n_iter=1000,
+                                               n_iter=250,
                                                verbose=1)))
     ])
 
@@ -29,27 +49,4 @@ if __name__ == '__main__':
     X_ts_2d = pipe.transform(X_test)
 
     # Plot
-    fig, ax = plt.subplots()
-    colors = cm.rainbow(np.linspace(0, 1, 10))
-    for c in range(10):
-        # Train
-        ax.scatter(X_tr_2d[y_train == c, 0], X_tr_2d[y_train == c, 1], s=12, color=colors[c], alpha=.6)
-        # # Test
-        ax.scatter(X_ts_2d[y_test == c, 0], X_ts_2d[y_test == c, 1], s=6, color=colors[c], label=c)
-
-    # Computing the limits of the axes
-    X = np.vstack((X_tr_2d, X_ts_2d))
-    xmin = X[:, 0].min()
-    xmax = X[:, 0].max()
-    expand_value = (xmax - xmin) * 0.05
-    x_lim = np.asarray([xmin - expand_value, xmax + expand_value])
-
-    ymin = X[:, 1].min()
-    ymax = X[:, 1].max()
-    expand_value = (ymax - ymin) * 0.05
-    y_lim = np.asarray([ymin - expand_value, ymax + expand_value])
-
-    fig.legend()
-    fig.tight_layout()
-
-    fig.show()
+    plot(X_tr_2d, X_ts_2d, y_train, y_test)
